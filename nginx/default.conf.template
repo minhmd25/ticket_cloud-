@@ -1,0 +1,26 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    # Cấu hình lúc chạy: không cache để đổi API_BASE_URL là có hiệu lực ngay.
+    location = /config.js {
+        add_header Cache-Control "no-store";
+    }
+
+    # File đã có mã băm trong tên: cache lâu.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # Ứng dụng một trang: mọi đường dẫn khác trả về index.html.
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}
