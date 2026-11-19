@@ -1,0 +1,1244 @@
+[
+ {
+  "name": "valid base",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid CANCELLED",
+  "message": {
+   "messageId": "m-1",
+   "type": "CANCELLED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid Z offset",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T03:15:30Z"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid millis",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30.123+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid micros",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30.123456+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid no seconds",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid negative offset",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30-05:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid leap day",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2028-02-29T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid id with space",
+  "message": {
+   "messageId": "a b",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid id 200 chars",
+  "message": {
+   "messageId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid unicode id",
+  "message": {
+   "messageId": "đơn-hàng-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "valid extra field",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00",
+   "userId": "u1"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "missing messageId",
+  "message": {
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: messageId"
+ },
+ {
+  "name": "null messageId",
+  "message": {
+   "messageId": null,
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: messageId"
+ },
+ {
+  "name": "empty messageId",
+  "message": {
+   "messageId": "",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: messageId"
+ },
+ {
+  "name": "missing type",
+  "message": {
+   "messageId": "m-1",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: type"
+ },
+ {
+  "name": "null type",
+  "message": {
+   "messageId": "m-1",
+   "type": null,
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: type"
+ },
+ {
+  "name": "empty type",
+  "message": {
+   "messageId": "m-1",
+   "type": "",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: type"
+ },
+ {
+  "name": "missing orderId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: orderId"
+ },
+ {
+  "name": "null orderId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": null,
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: orderId"
+ },
+ {
+  "name": "empty orderId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: orderId"
+ },
+ {
+  "name": "missing eventId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: eventId"
+ },
+ {
+  "name": "null eventId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": null,
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: eventId"
+ },
+ {
+  "name": "empty eventId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: eventId"
+ },
+ {
+  "name": "missing ticketTierId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: ticketTierId"
+ },
+ {
+  "name": "null ticketTierId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": null,
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: ticketTierId"
+ },
+ {
+  "name": "empty ticketTierId",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: ticketTierId"
+ },
+ {
+  "name": "missing quantity",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: quantity"
+ },
+ {
+  "name": "null quantity",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": null,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: quantity"
+ },
+ {
+  "name": "empty quantity",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": "",
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: quantity"
+ },
+ {
+  "name": "missing occurredAt",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: occurredAt"
+ },
+ {
+  "name": "null occurredAt",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": null
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: occurredAt"
+ },
+ {
+  "name": "empty occurredAt",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": ""
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: occurredAt"
+ },
+ {
+  "name": "type 'booked'",
+  "message": {
+   "messageId": "m-1",
+   "type": "booked",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'type' must be one of ['BOOKED', 'CANCELLED'], got 'booked'"
+ },
+ {
+  "name": "type 'REFUND'",
+  "message": {
+   "messageId": "m-1",
+   "type": "REFUND",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'type' must be one of ['BOOKED', 'CANCELLED'], got 'REFUND'"
+ },
+ {
+  "name": "type 'Booked '",
+  "message": {
+   "messageId": "m-1",
+   "type": "Booked ",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'type' must be one of ['BOOKED', 'CANCELLED'], got 'Booked '"
+ },
+ {
+  "name": "type 'BOOKED '",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED ",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'type' must be one of ['BOOKED', 'CANCELLED'], got 'BOOKED '"
+ },
+ {
+  "name": "type number",
+  "message": {
+   "messageId": "m-1",
+   "type": 1,
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'type' must be one of ['BOOKED', 'CANCELLED'], got 1"
+ },
+ {
+  "name": "quantity 0",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 0,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity -1",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": -1,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity 1.5",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 1.5,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity '2'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": "2",
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity True",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": true,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity False",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": false,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity []",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": [],
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity {}",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": {},
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'quantity' must be a positive integer"
+ },
+ {
+  "name": "quantity big int",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 1000000000,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "messageId has '/'",
+  "message": {
+   "messageId": "a/b",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "eventId has '/'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "a/b",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'eventId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId has '\\\\'",
+  "message": {
+   "messageId": "a\\b",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "eventId has '\\\\'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "a\\b",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'eventId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId has '#'",
+  "message": {
+   "messageId": "a#b",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "eventId has '#'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "a#b",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'eventId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId has '?'",
+  "message": {
+   "messageId": "a?b",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "eventId has '?'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "a?b",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'eventId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId control char",
+  "message": {
+   "messageId": "a\nb",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId tab",
+  "message": {
+   "messageId": "a\tb",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' contains characters not allowed in a table key"
+ },
+ {
+  "name": "messageId 201 chars",
+  "message": {
+   "messageId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'messageId' is too long (max 200 chars)"
+ },
+ {
+  "name": "eventId 201 chars",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'eventId' is too long (max 200 chars)"
+ },
+ {
+  "name": "orderId has slash (not a key)",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "a/b",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "orderId number",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": 1001,
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "messageId number",
+  "message": {
+   "messageId": 123,
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "eventId number",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": 5,
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "ticketTierId number",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": 3,
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "orderId list",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": [
+    "a"
+   ],
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "orderId spaces only",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "   ",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' must include a timezone offset (e.g. +07:00 or Z)"
+ },
+ {
+  "name": "occurredAt '2026-11-12'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' must include a timezone offset (e.g. +07:00 or Z)"
+ },
+ {
+  "name": "occurredAt '2026-11-12 10:15:30+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12 10:15:30+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-13-01T10:00:00+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-13-01T10:00:00+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-13-01T10:00:00+07:00'"
+ },
+ {
+  "name": "occurredAt '2026-02-30T10:00:00+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-02-30T10:00:00+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-02-30T10:00:00+07:00'"
+ },
+ {
+  "name": "occurredAt '2027-02-29T10:00:00+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2027-02-29T10:00:00+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2027-02-29T10:00:00+07:00'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T24:00:00+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T24:00:00+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-11-12T24:00:00+07:00'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:60:00+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:60:00+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-11-12T10:60:00+07:00'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:60+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:60+07:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-11-12T10:15:60+07:00'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30+24:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+24:00"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-11-12T10:15:30+24:00'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30+07'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30+0700'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+0700"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30z'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30z"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-11-12T10:15:30z'"
+ },
+ {
+  "name": "occurredAt '12/11/2026 10:15'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "12/11/2026 10:15"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '12/11/2026 10:15'"
+ },
+ {
+  "name": "occurredAt ''",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": ""
+  },
+  "azureValid": false,
+  "azureError": "missing required fields: occurredAt"
+ },
+ {
+  "name": "occurredAt 'not a date'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "not a date"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: 'not a date'"
+ },
+ {
+  "name": "occurredAt '0000-01-01T00:00:00Z'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "0000-01-01T00:00:00Z"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '0000-01-01T00:00:00Z'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30+07:60'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30+07:60"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30.1234567+07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30.1234567+07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt '2026-04-31T10:00:00Z'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-04-31T10:00:00Z"
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' is not valid ISO-8601: '2026-04-31T10:00:00Z'"
+ },
+ {
+  "name": "occurredAt '2026-11-12T10:15:30 +07:00'",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": "2026-11-12T10:15:30 +07:00"
+  },
+  "azureValid": true,
+  "azureError": null
+ },
+ {
+  "name": "occurredAt number",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": 1731381330
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' must be an ISO-8601 string"
+ },
+ {
+  "name": "occurredAt null-ish bool",
+  "message": {
+   "messageId": "m-1",
+   "type": "BOOKED",
+   "orderId": "O1",
+   "eventId": "E1",
+   "ticketTierId": "VIP",
+   "quantity": 2,
+   "occurredAt": true
+  },
+  "azureValid": false,
+  "azureError": "'occurredAt' must be an ISO-8601 string"
+ }
+]

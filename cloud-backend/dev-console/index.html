@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticketing Dev Console</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --border: #dde1e7;
+    --accent: #2f6fde; --ok: #1a7f4b; --warn: #b26b00; --err: #c2362f; --chip: #eef1f5; --code: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --muted: #98a2b3; --border: #2e343e;
+      --accent: #6b9cff; --ok: #4cc38a; --warn: #f0b04a; --err: #ff7a70; --chip: #262b34; --code: #11141a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+           padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tabs button { background: transparent; border: 1px solid transparent; color: var(--muted); }
+  .tabs button.active { background: var(--chip); color: var(--text); border-color: var(--border); }
+  .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  section.tab { display: none; } section.tab.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  label { color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+  input, select, textarea, button { font: inherit; color: var(--text); }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.secondary { background: var(--chip); color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--chip); font-size: 12px; }
+  .s-CONFIRMED, .s-SENT, .s-PUBLISHED, .s-ok { color: var(--ok); }
+  .s-CANCELLED, .s-FAILED, .s-err { color: var(--err); }
+  .s-PENDING, .s-DRAFT { color: var(--warn); }
+  .muted { color: var(--muted); }
+  .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .event { border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; background: var(--bg); }
+  .event.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .event b { display: block; margin-bottom: 4px; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow: auto; font-size: 12px; margin: 6px 0 0; max-height: 260px; }
+  #log .entry { border-bottom: 1px solid var(--border); padding: 6px 0; }
+  #log .entry summary { cursor: pointer; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  aside { position: sticky; top: 62px; align-self: start; max-height: calc(100vh - 80px); overflow: auto; }
+  .bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; min-width: 80px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .stat { display: inline-block; margin-right: 18px; } .stat b { font-size: 20px; display: block; }
+  .hint { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎟 Ticketing Dev Console</h1>
+  <nav class="tabs" id="tabs">
+    <button data-tab="events" class="active">Sự kiện &amp; đặt vé</button>
+    <button data-tab="orders">Đơn của tôi</button>
+    <button data-tab="admin">Quản trị</button>
+    <button data-tab="outbox">Outbox &amp; thống kê</button>
+  </nav>
+  <span class="spacer"></span>
+  <label>Đăng nhập (mock)
+    <select id="user">
+      <option value="alice:customer">alice (khách)</option>
+      <option value="bob:customer">bob (khách)</option>
+      <option value="carol:customer">carol (khách)</option>
+      <option value="admin1:admin">admin1 (quản trị)</option>
+      <option value="">— không đăng nhập —</option>
+      <option value="__custom">Token tùy chỉnh…</option>
+    </select>
+  </label>
+  <span id="health" class="chip">…</span>
+</header>
+
+<main>
+<div>
+  <!-- ================= TAB 1: SỰ KIỆN ================= -->
+  <section class="tab active" id="tab-events">
+    <div class="card">
+      <h2>Danh sách sự kiện <span class="muted">GET /api/events</span></h2>
+      <div class="row">
+        <label>Loại hình <select id="evCategory"><option value="">Tất cả</option></select></label>
+        <label>Tìm <input id="evQ" placeholder="tên / địa điểm"></label>
+        <label>&nbsp;<button class="secondary" id="evReload">Tải lại</button></label>
+      </div>
+      <div class="events" id="evList"></div>
+    </div>
+
+    <div class="card" id="evDetailCard" hidden>
+      <h2 id="evDetailTitle"></h2>
+      <div class="muted" id="evDetailMeta"></div>
+      <table style="margin-top:10px">
+        <thead><tr><th>Hạng vé</th><th class="num">Giá</th><th>Còn / Tổng</th><th>Số lượng</th><th></th></tr></thead>
+        <tbody id="ttRows"></tbody>
+      </table>
+      <div class="row" style="margin-top:8px">
+        <label style="flex-direction:row;gap:6px;align-items:center"><input type="checkbox" id="useIdem"> Gửi kèm Idempotency-Key</label>
+        <button class="secondary" id="doubleClick">Giả lập bấm "Đặt" 2 lần (cùng key)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚡ Test tranh vé đồng thời</h2>
+      <p class="hint">Gửi N request đặt vé CÙNG LÚC, mỗi request từ một khách khác nhau (race_1…race_N). Kỳ vọng: tổng vé bán = min(số còn, tổng yêu cầu), số còn lại không âm.</p>
+      <div class="row">
+        <label>Hạng vé <select id="raceTt" style="min-width:260px"></select></label>
+        <label>Số request <input id="raceN" type="number" value="20" min="2" max="200" style="width:80px"></label>
+        <label>Vé / request <input id="raceQ" type="number" value="1" min="1" max="10" style="width:70px"></label>
+        <label>&nbsp;<button id="raceGo">Bắn!</button></label>
+      </div>
+      <div id="raceResult"></div>
+    </div>
+  </section>
+
+  <!-- ================= TAB 2: ĐƠN CỦA TÔI ================= -->
+  <section class="tab" id="tab-orders">
+    <div class="card">
+      <h2>Đơn của tôi <span class="muted">GET /api/orders</span></h2>
+      <div class="row">
+        <label>Trạng thái <select id="myStatus"><option value="">Tất cả</option><option>CONFIRMED</option><option>CANCELLED</option></select></label>
+        <label>&nbsp;<button class="secondary" id="myReload">Tải lại</button></label>
+      </div>
+      <table>
+        <thead><tr><th>Sự kiện / hạng vé</th><th class="num">SL</th><th class="num">Thành tiền</th><th>Trạng thái</th><th>Hạn hủy</th><th></th></tr></thead>
+        <tbody id="myRows"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Thử truy cập đơn bất kỳ <span class="muted">(kiểm tra quyền)</span></h2>
+      <p class="hint">Dán ID đơn của người khác rồi đổi user ở góc trên → kỳ vọng 404 ORDER_NOT_FOUND.</p>
+      <div class="row">
+        <input id="anyOrderId" placeholder="order id" style="flex:1;min-width:260px">
+        <button class="secondary" id="anyView">Xem</button>
+        <button class="danger" id="anyCancel">Hủy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= TAB 3: QUẢN TRỊ ================= -->
+  <section class="tab" id="tab-admin">
+    <div class="card">
+      <h2>Tạo sự kiện <span class="muted">POST /api/admin/events</span></h2>
+      <div class="row">
+        <label>Tên <input id="cTitle" value="Sự kiện thử nghiệm"></label>
+        <label>Loại hình <input id="cCategory" value="concert" style="width:110px"></label>
+        <label>Địa điểm <input id="cVenue" value="Hà Nội"></label>
+        <label>Bắt đầu <input id="cStart" type="datetime-local"></label>
+        <label>Kết thúc <input id="cEnd" type="datetime-local"></label>
+        <label>Trạng thái <select id="cStatus"><option>PUBLISHED</option><option>DRAFT</option></select></label>
+      </div>
+      <table><thead><tr><th>Hạng vé</th><th>Giá</th><th>Số lượng</th><th></th></tr></thead><tbody id="cTts"></tbody></table>
+      <div class="row" style="margin-top:8px">
+        <button class="secondary" id="cAddTt">+ Hạng vé</button>
+        <button id="cCreate">Tạo sự kiện</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sự kiện (mọi trạng thái) <span class="muted">GET /api/admin/events</span></h2>
+      <div class="row">
+        <label>Trạng thái <select id="aStatus"><option value="">Tất cả</option><option>DRAFT</option><option>PUBLISHED</option><option>CANCELLED</option></select></label>
+        <label style="flex-direction:row;gap:6px;align-items:center"><input type="checkbox" id="aPast"> gồm sự kiện đã qua</label>
+        <button class="secondary" id="aReload">Tải lại</button>
+      </div>
+      <table><thead><tr><th>Sự kiện</th><th>Loại</th><th>Bắt đầu</th><th>Trạng thái</th><th></th></tr></thead><tbody id="aRows"></tbody></table>
+    </div>
+
+    <div class="card" id="editCard" hidden>
+      <h2>Sửa sự kiện <span class="muted" id="eId"></span></h2>
+      <div class="row">
+        <label>Tên <input id="eTitle"></label>
+        <label>Loại hình <input id="eCategory" style="width:110px"></label>
+        <label>Địa điểm <input id="eVenue"></label>
+        <label>Bắt đầu <input id="eStart" type="datetime-local"></label>
+        <label>Kết thúc <input id="eEnd" type="datetime-local"></label>
+        <label>Trạng thái <select id="eStatus"><option>DRAFT</option><option>PUBLISHED</option><option>CANCELLED</option></select></label>
+        <label>&nbsp;<button id="eSave">Lưu (PATCH)</button></label>
+      </div>
+      <p class="hint">Sửa hạng vé: thử giảm "Tổng" xuống dưới "Đang giữ" → kỳ vọng 409 QUANTITY_BELOW_RESERVED. Thử giá âm → 400.</p>
+      <table>
+        <thead><tr><th>Hạng vé</th><th>Giá</th><th>Tổng</th><th class="num">Đang giữ</th><th class="num">Còn</th><th></th></tr></thead>
+        <tbody id="eTts"></tbody>
+      </table>
+      <div class="row" style="margin-top:8px">
+        <input id="nTtName" placeholder="tên hạng vé mới" style="width:160px">
+        <input id="nTtPrice" type="number" placeholder="giá" style="width:110px">
+        <input id="nTtQty" type="number" placeholder="số lượng" style="width:100px">
+        <button class="secondary" id="nTtAdd">+ Thêm hạng vé</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tra đơn <span class="muted">GET /api/admin/orders</span></h2>
+      <div class="row">
+        <label>Sự kiện <select id="oEvent" style="min-width:220px"><option value="">Tất cả</option></select></label>
+        <label>Trạng thái <select id="oStatus"><option value="">Tất cả</option><option>CONFIRMED</option><option>CANCELLED</option></select></label>
+        <label>User <input id="oUser" style="width:110px"></label>
+        <label>&nbsp;<button class="secondary" id="oSearch">Tìm</button></label>
+      </div>
+      <div id="oSummary" class="row"></div>
+      <table>
+        <thead><tr><th>Đơn</th><th>User</th><th>Sự kiện / hạng vé</th><th class="num">SL</th><th class="num">Tiền</th><th>Trạng thái</th><th></th></tr></thead>
+        <tbody id="oRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= TAB 4: OUTBOX & THỐNG KÊ ================= -->
+  <section class="tab" id="tab-outbox">
+    <div class="card">
+      <h2>Outbox → Azure</h2>
+      <p class="hint">Muốn thử "gửi thất bại": chạy server với <code>PUBLISHER_MOCK_FAIL=true</code>, đặt vài vé → sự kiện kẹt PENDING (attempts tăng, có lỗi). Tắt cờ, khởi động lại → worker tự gửi lại, hoặc bấm "Gửi lại tất cả".</p>
+      <div id="obStats" class="row"></div>
+      <div class="row">
+        <label>Lọc <select id="obStatus"><option value="">Tất cả</option><option>PENDING</option><option>SENT</option><option>FAILED</option></select></label>
+        <button class="secondary" id="obReload">Tải lại</button>
+        <button class="secondary" id="obDispatch">Chạy worker 1 lượt</button>
+        <button id="obRetry">Gửi lại tất cả (PENDING/FAILED)</button>
+        <label style="flex-direction:row;gap:6px;align-items:center"><input type="checkbox" id="obAuto"> tự làm mới 2s</label>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Loại</th><th>Đơn</th><th>Trạng thái</th><th class="num">Lần thử</th><th>Lỗi gần nhất / thời điểm</th><th></th></tr></thead>
+        <tbody id="obRows"></tbody>
+      </table>
+      <p class="hint">"Đối soát": queue trả 201 chỉ nghĩa là Azure <i>nhận được chữ</i>. Nút này hỏi Azure <code>/history?orderId=</code> xem messageId đã thực sự được xử lý chưa.</p>
+      <div id="obSync"></div>
+    </div>
+    <div class="card">
+      <h2>Thống kê <span class="muted">số vé từ Azure (chậm ~1-2 phút) · doanh thu từ DB</span></h2>
+      <div class="row">
+        <label>Từ <input type="date" id="stFrom"></label>
+        <label>Đến <input type="date" id="stTo"></label>
+        <label>Sự kiện (cho "theo ngày") <select id="stEvent" style="min-width:220px"><option value="">Tất cả</option></select></label>
+        <label>&nbsp;<button class="secondary" id="stDaily">Theo ngày</button></label>
+        <label>&nbsp;<button class="secondary" id="stByEvent">Theo sự kiện</button></label>
+      </div>
+      <div id="stOut"></div>
+    </div>
+  </section>
+</div>
+
+<!-- ================= NHẬT KÝ REQUEST ================= -->
+<aside>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin:0">
+      <h2 style="margin:0">Nhật ký request</h2>
+      <button class="secondary" id="logClear">Xóa</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</aside>
+</main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = (n) => Number(n).toLocaleString('vi-VN') + 'đ';
+const dt = (s) => (s ? new Date(s).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }) : '');
+const toLocalInput = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
+const fromLocalInput = (v) => new Date(v).toISOString();
+const shortId = (id) => String(id).slice(0, 8);
+
+// ---------------- đăng nhập mock ----------------
+let customToken = '';
+function token() {
+  const v = $('user').value;
+  if (v === '__custom') return customToken;
+  return v ? 'mock:' + v : '';
+}
+try { const saved = localStorage.getItem('devUser'); if (saved) $('user').value = saved; } catch {}
+$('user').addEventListener('change', () => {
+  if ($('user').value === '__custom') customToken = prompt('Nhập token (không gồm "Bearer ")', customToken) || '';
+  try { localStorage.setItem('devUser', $('user').value); } catch {}
+  refreshActiveTab();
+});
+const isAdmin = () => token().endsWith(':admin');
+
+// ---------------- gọi API + nhật ký ----------------
+async function api(method, path, body, opts = {}) {
+  const headers = { Accept: 'application/json' };
+  const t = opts.token !== undefined ? opts.token : token();
+  if (t) headers.Authorization = 'Bearer ' + t;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  Object.assign(headers, opts.headers || {});
+  const started = performance.now();
+  let res, data;
+  try {
+    res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const text = await res.text();
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  } catch (err) {
+    data = { networkError: String(err) };
+  }
+  const status = res ? res.status : 0;
+  if (!opts.silent) log(method, path, status, Math.round(performance.now() - started), body, data, t);
+  return { status, ok: status >= 200 && status < 300, data };
+}
+
+function log(method, path, status, ms, reqBody, resBody, t) {
+  const el = document.createElement('details');
+  el.className = 'entry';
+  const cls = status >= 200 && status < 300 ? 's-ok' : 's-err';
+  const code = resBody && resBody.error ? ' ' + resBody.error.code : '';
+  el.innerHTML = `<summary><b class="${cls}">${status}</b> ${esc(method)} ${esc(path)}<span class="muted"> ${ms}ms${esc(code)}</span></summary>
+    <div class="muted" style="font-size:12px">user: ${esc(t || '(không)')}</div>
+    ${reqBody !== undefined ? `<pre>${esc(JSON.stringify(reqBody, null, 2))}</pre>` : ''}
+    <pre>${esc(JSON.stringify(resBody, null, 2))}</pre>`;
+  if (!(status >= 200 && status < 300)) el.open = true;
+  $('log').prepend(el);
+  while ($('log').children.length > 60) $('log').lastChild.remove();
+}
+$('logClear').onclick = () => ($('log').innerHTML = '');
+
+// ---------------- tabs ----------------
+let activeTab = 'events';
+$('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  activeTab = b.dataset.tab;
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('active', x === b));
+  document.querySelectorAll('section.tab').forEach((s) => s.classList.toggle('active', s.id === 'tab-' + activeTab));
+  refreshActiveTab();
+});
+function refreshActiveTab() {
+  if (activeTab === 'events') loadEvents();
+  if (activeTab === 'orders') loadMyOrders();
+  if (activeTab === 'admin') { loadAdminEvents(); searchOrders(); }
+  if (activeTab === 'outbox') loadOutbox();
+}
+
+// ================= TAB 1: SỰ KIỆN =================
+let selectedEventId = null;
+async function loadCategories() {
+  const r = await api('GET', '/api/events/categories', undefined, { silent: true });
+  if (!r.ok) return;
+  const cur = $('evCategory').value;
+  $('evCategory').innerHTML = '<option value="">Tất cả</option>' +
+    r.data.data.map((c) => `<option value="${esc(c.category)}">${esc(c.category)} (${c.eventCount})</option>`).join('');
+  $('evCategory').value = cur;
+}
+async function loadEvents() {
+  loadCategories();
+  const qs = new URLSearchParams();
+  if ($('evCategory').value) qs.set('category', $('evCategory').value);
+  if ($('evQ').value.trim()) qs.set('q', $('evQ').value.trim());
+  const r = await api('GET', '/api/events' + (qs.toString() ? '?' + qs : ''));
+  if (!r.ok) return;
+  $('evList').innerHTML = r.data.data.map((e) => `
+    <div class="event ${e.id === selectedEventId ? 'selected' : ''}" data-id="${e.id}">
+      <b>${esc(e.title)}</b>
+      <div class="muted">${esc(e.category)} · ${esc(e.venue)}</div>
+      <div class="muted">${dt(e.startTime)}</div>
+      <div>${e.minPrice === null ? '<span class="muted">chưa có vé</span>' : 'từ ' + money(e.minPrice)} · còn <b style="display:inline">${e.totalAvailable}</b> vé</div>
+    </div>`).join('') || '<div class="muted">Không có sự kiện.</div>';
+  loadRaceTicketTypes(r.data.data);
+  if (selectedEventId) showEvent(selectedEventId, true);
+}
+$('evReload').onclick = loadEvents;
+$('evCategory').onchange = loadEvents;
+$('evQ').onkeydown = (e) => { if (e.key === 'Enter') loadEvents(); };
+$('evList').onclick = (e) => { const c = e.target.closest('.event'); if (c) showEvent(c.dataset.id); };
+
+async function showEvent(id, silent) {
+  selectedEventId = id;
+  document.querySelectorAll('.event').forEach((x) => x.classList.toggle('selected', x.dataset.id === id));
+  const r = await api('GET', '/api/events/' + id, undefined, { silent });
+  if (!r.ok) { $('evDetailCard').hidden = true; return; }
+  const e = r.data;
+  $('evDetailCard').hidden = false;
+  $('evDetailTitle').textContent = e.title;
+  $('evDetailMeta').textContent = `${e.category} · ${e.venue} · ${dt(e.startTime)} → ${dt(e.endTime)}`;
+  $('ttRows').innerHTML = e.ticketTypes.map((t) => `
+    <tr>
+      <td>${esc(t.name)}${t.soldOut ? ' <span class="chip s-err">hết vé</span>' : ''}</td>
+      <td class="num">${money(t.price)}</td>
+      <td><div class="row" style="margin:0;flex-wrap:nowrap"><span>${t.availableQuantity}/${t.totalQuantity}</span>
+          <div class="bar" style="flex:1"><i style="width:${t.totalQuantity ? (100 * t.availableQuantity) / t.totalQuantity : 0}%"></i></div></div></td>
+      <td><input type="number" min="1" value="1" style="width:70px" id="q_${t.id}"></td>
+      <td><button data-book="${t.id}">Đặt vé</button></td>
+    </tr>`).join('');
+}
+$('ttRows').onclick = async (e) => {
+  const id = e.target.dataset.book; if (!id) return;
+  const quantity = Number($('q_' + id).value);
+  const headers = $('useIdem').checked ? { 'Idempotency-Key': 'ui-' + Date.now() } : {};
+  await api('POST', '/api/orders', { ticketTypeId: id, quantity }, { headers });
+  showEvent(selectedEventId, true);
+};
+$('doubleClick').onclick = async () => {
+  const first = document.querySelector('#ttRows [data-book]');
+  if (!first) return;
+  const id = first.dataset.book;
+  const key = 'dbl-' + Date.now();
+  const body = { ticketTypeId: id, quantity: Number($('q_' + id).value) };
+  await Promise.all([1, 2].map(() => api('POST', '/api/orders', body, { headers: { 'Idempotency-Key': key } })));
+  showEvent(selectedEventId, true);
+};
+
+// ---- tranh vé ----
+async function loadRaceTicketTypes(events) {
+  const cur = $('raceTt').value;
+  const details = await Promise.all(events.map((e) => api('GET', '/api/events/' + e.id, undefined, { silent: true })));
+  $('raceTt').innerHTML = details.filter((d) => d.ok).flatMap((d) => d.data.ticketTypes.map((t) =>
+    `<option value="${t.id}" data-event="${d.data.id}">${esc(d.data.title)} › ${esc(t.name)} (còn ${t.availableQuantity})</option>`)).join('');
+  if (cur) $('raceTt').value = cur;
+}
+$('raceGo').onclick = async () => {
+  const tt = $('raceTt').value; if (!tt) return;
+  const n = Math.min(200, Number($('raceN').value) || 2);
+  const q = Number($('raceQ').value) || 1;
+  $('raceGo').disabled = true;
+  const runId = Date.now().toString(36);
+  const t0 = performance.now();
+  const results = await Promise.all(Array.from({ length: n }, (_, i) =>
+    api('POST', '/api/orders', { ticketTypeId: tt, quantity: q }, { token: `mock:race_${runId}_${i + 1}:customer`, silent: true })));
+  const ms = Math.round(performance.now() - t0);
+  $('raceGo').disabled = false;
+  const groups = {};
+  for (const r of results) { const k = r.status + (r.data && r.data.error ? ' ' + r.data.error.code : ''); groups[k] = (groups[k] || 0) + 1; }
+  const sold = results.filter((r) => r.status === 201).reduce((s, r) => s + r.data.quantity, 0);
+  const eventId = $('raceTt').selectedOptions[0].dataset.event;
+  const after = await api('GET', '/api/events/' + eventId, undefined, { silent: true });
+  const t = after.ok ? after.data.ticketTypes.find((x) => x.id === tt) : null;
+  $('raceResult').innerHTML = `
+    <div class="row">${Object.entries(groups).map(([k, v]) => `<span class="chip ${k.startsWith('201') ? 's-ok' : 's-err'}">${esc(k)}: ${v}</span>`).join('')}</div>
+    <div>Gửi ${n} request × ${q} vé trong ${ms}ms → bán được <b>${sold}</b> vé.
+    ${t ? `Sau test: còn <b>${t.availableQuantity}</b>/${t.totalQuantity}, đang giữ ${t.reservedQuantity}. ${t.availableQuantity >= 0 ? '<span class="s-ok">✔ không âm</span>' : '<span class="s-err">✘ ÂM!</span>'}` : ''}</div>
+    <div class="hint">Trình duyệt giới hạn ~6 kết nối song song/host, nên các request đến server theo từng đợt; test đồng thời "thật" nằm trong npm test.</div>`;
+  loadEvents();
+};
+
+// ================= TAB 2: ĐƠN CỦA TÔI =================
+async function loadMyOrders() {
+  const qs = $('myStatus').value ? '?status=' + $('myStatus').value : '';
+  const r = await api('GET', '/api/orders' + qs);
+  if (!r.ok) { $('myRows').innerHTML = `<tr><td colspan="6" class="s-err">${esc(r.data?.error?.message || 'Lỗi')}</td></tr>`; return; }
+  $('myRows').innerHTML = r.data.data.map((o) => `
+    <tr>
+      <td>${esc(o.event.title)}<div class="muted">${esc(o.ticketType.name)} · <span title="${o.id}">#${shortId(o.id)}</span>
+        <button class="secondary" style="padding:0 6px;font-size:11px" data-copy="${o.id}">copy id</button></div></td>
+      <td class="num">${o.quantity}</td>
+      <td class="num">${money(o.totalAmount)}</td>
+      <td class="s-${o.status}">${o.status}${o.cancelReason ? `<div class="muted">${esc(o.cancelReason)}</div>` : ''}</td>
+      <td>${dt(o.cancellationDeadline)}${o.canCancel ? '' : ' <span class="muted">(hết hạn)</span>'}</td>
+      <td><button class="danger" data-cancel="${o.id}">Hủy</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có đơn.</td></tr>';
+}
+$('myReload').onclick = loadMyOrders;
+$('myStatus').onchange = loadMyOrders;
+$('myRows').onclick = async (e) => {
+  if (e.target.dataset.copy) { navigator.clipboard?.writeText(e.target.dataset.copy); $('anyOrderId').value = e.target.dataset.copy; return; }
+  const id = e.target.dataset.cancel; if (!id) return;
+  const reason = prompt('Lý do hủy (có thể bỏ trống)', '') ?? undefined;
+  if (reason === undefined) return;
+  await api('POST', `/api/orders/${id}/cancel`, reason ? { reason } : {});
+  loadMyOrders();
+};
+$('anyView').onclick = () => api('GET', '/api/orders/' + $('anyOrderId').value.trim());
+$('anyCancel').onclick = async () => { await api('POST', `/api/orders/${$('anyOrderId').value.trim()}/cancel`, {}); };
+
+// ================= TAB 3: QUẢN TRỊ =================
+function ttInputRow(name = '', price = '', qty = '') {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input class="ttName" value="${esc(name)}"></td><td><input class="ttPrice" type="number" value="${esc(price)}" style="width:120px"></td>
+    <td><input class="ttQty" type="number" value="${esc(qty)}" style="width:100px"></td><td><button class="secondary" data-del>×</button></td>`;
+  return tr;
+}
+$('cTts').append(ttInputRow('Thường', 100000, 10), ttInputRow('VIP', 500000, 1));
+$('cTts').onclick = (e) => { if (e.target.dataset.del !== undefined) e.target.closest('tr').remove(); };
+$('cAddTt').onclick = () => $('cTts').append(ttInputRow());
+$('cStart').value = toLocalInput(Date.now() + 7 * 864e5);
+$('cEnd').value = toLocalInput(Date.now() + 7 * 864e5 + 3 * 36e5);
+
+const numOrRaw = (v) => (v === '' ? '' : isNaN(Number(v)) ? v : Number(v));
+$('cCreate').onclick = async () => {
+  const ticketTypes = [...$('cTts').querySelectorAll('tr')].map((tr) => ({
+    name: tr.querySelector('.ttName').value,
+    price: numOrRaw(tr.querySelector('.ttPrice').value),
+    totalQuantity: numOrRaw(tr.querySelector('.ttQty').value),
+  }));
+  const r = await api('POST', '/api/admin/events', {
+    title: $('cTitle').value, category: $('cCategory').value, venue: $('cVenue').value,
+    startTime: fromLocalInput($('cStart').value), endTime: fromLocalInput($('cEnd').value),
+    status: $('cStatus').value, ticketTypes,
+  });
+  if (r.ok) { loadAdminEvents(); editEvent(r.data.id); }
+};
+
+let adminEvents = [];
+async function loadAdminEvents() {
+  const qs = new URLSearchParams({ limit: '100' });
+  if ($('aStatus').value) qs.set('status', $('aStatus').value);
+  if ($('aPast').checked) qs.set('includePast', 'true');
+  const r = await api('GET', '/api/admin/events?' + qs);
+  if (!r.ok) { $('aRows').innerHTML = `<tr><td colspan="5" class="s-err">${esc(r.data?.error?.code)}: ${esc(r.data?.error?.message)}</td></tr>`; return; }
+  adminEvents = r.data.data;
+  $('aRows').innerHTML = adminEvents.map((e) => `
+    <tr><td>${esc(e.title)}<div class="muted">${esc(e.venue)}</div></td><td>${esc(e.category)}</td><td>${dt(e.startTime)}</td>
+    <td class="s-${e.status}">${e.status}</td><td><button class="secondary" data-edit="${e.id}">Sửa</button></td></tr>`).join('');
+  const opts = adminEvents.map((e) => `<option value="${e.id}">${esc(e.title)}</option>`).join('');
+  const cur = $('oEvent').value; $('oEvent').innerHTML = '<option value="">Tất cả</option>' + opts; $('oEvent').value = cur;
+  const cur2 = $('stEvent').value; $('stEvent').innerHTML = '<option value="">Tất cả</option>' + opts; $('stEvent').value = cur2;
+}
+$('aReload').onclick = loadAdminEvents;
+$('aStatus').onchange = loadAdminEvents;
+$('aPast').onchange = loadAdminEvents;
+$('aRows').onclick = (e) => { if (e.target.dataset.edit) editEvent(e.target.dataset.edit); };
+
+let editingId = null;
+async function editEvent(id) {
+  editingId = id;
+  const r = await api('GET', '/api/admin/events/' + id);
+  if (!r.ok) return;
+  const e = r.data;
+  $('editCard').hidden = false;
+  $('eId').textContent = '#' + shortId(e.id);
+  $('eTitle').value = e.title; $('eCategory').value = e.category; $('eVenue').value = e.venue;
+  $('eStart').value = toLocalInput(e.startTime); $('eEnd').value = toLocalInput(e.endTime); $('eStatus').value = e.status;
+  $('eTts').innerHTML = e.ticketTypes.map((t) => `
+    <tr data-tt="${t.id}">
+      <td><input class="uName" value="${esc(t.name)}" style="width:140px"></td>
+      <td><input class="uPrice" type="number" value="${t.price}" style="width:120px"></td>
+      <td><input class="uQty" type="number" value="${t.totalQuantity}" style="width:90px"></td>
+      <td class="num">${t.reservedQuantity}</td><td class="num">${t.availableQuantity}</td>
+      <td><button class="secondary" data-save-tt>Lưu</button></td>
+    </tr>`).join('');
+  $('editCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+$('eSave').onclick = async () => {
+  const r = await api('PATCH', '/api/admin/events/' + editingId, {
+    title: $('eTitle').value, category: $('eCategory').value, venue: $('eVenue').value,
+    startTime: fromLocalInput($('eStart').value), endTime: fromLocalInput($('eEnd').value), status: $('eStatus').value,
+  });
+  if (r.ok) { loadAdminEvents(); editEvent(editingId); }
+};
+$('eTts').onclick = async (e) => {
+  if (e.target.dataset.saveTt === undefined) return;
+  const tr = e.target.closest('tr');
+  await api('PATCH', '/api/admin/ticket-types/' + tr.dataset.tt, {
+    name: tr.querySelector('.uName').value,
+    price: numOrRaw(tr.querySelector('.uPrice').value),
+    totalQuantity: numOrRaw(tr.querySelector('.uQty').value),
+  });
+  editEvent(editingId);
+};
+$('nTtAdd').onclick = async () => {
+  const r = await api('POST', `/api/admin/events/${editingId}/ticket-types`, {
+    name: $('nTtName').value, price: numOrRaw($('nTtPrice').value), totalQuantity: numOrRaw($('nTtQty').value),
+  });
+  if (r.ok) { $('nTtName').value = $('nTtPrice').value = $('nTtQty').value = ''; editEvent(editingId); }
+};
+
+async function searchOrders() {
+  const qs = new URLSearchParams({ limit: '100' });
+  if ($('oEvent').value) qs.set('eventId', $('oEvent').value);
+  if ($('oStatus').value) qs.set('status', $('oStatus').value);
+  if ($('oUser').value.trim()) qs.set('userId', $('oUser').value.trim());
+  const r = await api('GET', '/api/admin/orders?' + qs);
+  if (!r.ok) { $('oRows').innerHTML = ''; $('oSummary').innerHTML = ''; return; }
+  $('oSummary').innerHTML = Object.entries(r.data.summary).map(([s, v]) =>
+    `<span class="chip s-${s}">${s}: ${v.orders} đơn · ${v.tickets} vé · ${money(v.amount)}</span>`).join('');
+  $('oRows').innerHTML = r.data.data.map((o) => `
+    <tr><td title="${o.id}">#${shortId(o.id)}<div class="muted">${dt(o.createdAt)}</div></td><td>${esc(o.userId)}</td>
+    <td>${esc(o.event.title)}<div class="muted">${esc(o.ticketType.name)}</div></td>
+    <td class="num">${o.quantity}</td><td class="num">${money(o.totalAmount)}</td>
+    <td class="s-${o.status}">${o.status}${o.cancelledBy ? `<div class="muted">bởi ${esc(o.cancelledBy)}</div>` : ''}</td>
+    <td>${o.status === 'CONFIRMED' ? `<button class="danger" data-acancel="${o.id}">Hủy</button>` : ''}</td></tr>`).join('')
+    || '<tr><td colspan="7" class="muted">Không có đơn.</td></tr>';
+}
+$('oSearch').onclick = searchOrders;
+$('oEvent').onchange = searchOrders;
+$('oStatus').onchange = searchOrders;
+$('oRows').onclick = async (e) => {
+  const id = e.target.dataset.acancel; if (!id) return;
+  await api('POST', `/api/admin/orders/${id}/cancel`, { reason: 'Admin hủy từ dev console' });
+  searchOrders();
+};
+
+// ================= TAB 4: OUTBOX & THỐNG KÊ =================
+async function loadOutbox(silent) {
+  const s = await api('GET', '/api/admin/outbox/stats', undefined, { silent });
+  if (s.ok) $('obStats').innerHTML = Object.entries(s.data).map(([k, v]) =>
+    `<span class="stat"><b class="s-${k}">${v.count}</b><span class="muted">${k}</span></span>`).join('');
+  else $('obStats').innerHTML = `<span class="s-err">${esc(s.data?.error?.code)}: cần đăng nhập admin</span>`;
+  const qs = $('obStatus').value ? '&status=' + $('obStatus').value : '';
+  const r = await api('GET', '/api/admin/outbox?limit=100' + qs, undefined, { silent });
+  if (!r.ok) { $('obRows').innerHTML = ''; return; }
+  $('obRows').innerHTML = r.data.data.map((x) => `
+    <tr><td>${x.seq}</td><td>${esc(x.type)}</td><td title="${x.orderId}">#${shortId(x.orderId)}</td>
+    <td class="s-${x.status}">${x.status}</td><td class="num">${x.attempts}</td>
+    <td>${x.lastError ? `<span class="s-err">${esc(x.lastError)}</span>${x.status === 'PENDING' ? `<div class="muted">thử lại lúc ${dt(x.nextAttemptAt)}</div>` : ''}` : x.sentAt ? `<span class="muted">gửi lúc ${dt(x.sentAt)}</span>` : ''}</td>
+    <td><button class="secondary" data-sync="${x.orderId}">Đối soát</button></td></tr>`).join('')
+    || '<tr><td colspan="7" class="muted">Trống.</td></tr>';
+  if ($('stEvent').options.length <= 1) loadAdminEvents();
+}
+$('obRows').onclick = async (e) => {
+  const orderId = e.target.dataset.sync; if (!orderId) return;
+  const r = await api('GET', `/api/admin/orders/${orderId}/azure-sync`);
+  if (!r.ok) { $('obSync').innerHTML = `<p class="s-err">${esc(r.data?.error?.message)}</p>`; return; }
+  const label = (p) => (p === true ? '<span class="s-ok">✔ Azure đã xử lý</span>' : p === false ? '<span class="s-PENDING">chưa thấy trong /history</span>' : '<span class="muted">không hỏi được</span>');
+  $('obSync').innerHTML = `<div class="card" style="margin:8px 0 0"><b>Đơn #${shortId(orderId)}</b> <span class="muted">nguồn: ${esc(r.data.source)}</span>
+    ${r.data.historyError ? `<div class="s-err">${esc(r.data.historyError)}</div>` : ''}
+    <table><tbody>${r.data.messages.map((m) => `<tr><td>${esc(m.type)}</td><td class="muted" title="${esc(m.messageId)}">${shortId(m.messageId)}</td>
+      <td class="s-${m.outboxStatus}">${m.outboxStatus}</td><td>${label(m.processedByAzure)}</td></tr>`).join('')}</tbody></table></div>`;
+};
+$('obReload').onclick = () => loadOutbox();
+$('obStatus').onchange = () => loadOutbox();
+$('obDispatch').onclick = async () => { await api('POST', '/api/admin/outbox/dispatch'); loadOutbox(true); };
+$('obRetry').onclick = async () => { await api('POST', '/api/admin/outbox/retry', {}); loadOutbox(true); };
+let obTimer = null;
+$('obAuto').onchange = () => {
+  clearInterval(obTimer);
+  if ($('obAuto').checked) obTimer = setInterval(() => activeTab === 'outbox' && loadOutbox(true), 2000);
+};
+
+function renderStats(r) {
+  if (!r.ok) { $('stOut').innerHTML = `<p class="s-err">${esc(r.status)} ${esc(r.data?.error?.code)}: ${esc(r.data?.error?.message)}</p>`; return; }
+  const d = r.data, t = d.totals, byDay = d.query.groupBy === 'day';
+  const head = `<p class="muted">Số vé: <b>${esc(d.source)}</b> · lấy lúc ${dt(d.fetchedAt)}
+    ${d.stale ? '<span class="chip s-err">số vé là dữ liệu cũ (Azure đang lỗi)</span>' : ''} · ${esc(d.notes.tickets)}</p>`;
+  const tiles = `<div class="row">
+    <span class="stat"><b>${t.bookedTickets}</b><span class="muted">vé đặt (${t.bookedOrders} lần)</span></span>
+    <span class="stat"><b>${t.cancelledTickets}</b><span class="muted">vé hủy (${t.cancelledOrders} lần)</span></span>
+    <span class="stat"><b>${t.netTickets}</b><span class="muted">vé ròng</span></span>
+    <span class="stat"><b>${money(t.netRevenue)}</b><span class="muted">doanh thu ròng (DB)</span></span>
+  </div>`;
+  let chart = '';
+  if (byDay) {
+    const max = Math.max(1, ...d.items.map((x) => Math.max(x.bookedTickets, x.cancelledTickets)));
+    chart = `<div style="display:flex;align-items:flex-end;gap:2px;height:120px;margin:10px 0;border-bottom:1px solid var(--border)">
+      ${d.items.map((x) => `<div title="${esc(x.key)}: đặt ${x.bookedTickets}, hủy ${x.cancelledTickets}, ròng ${x.netTickets}"
+        style="flex:1;display:flex;gap:1px;align-items:flex-end;height:100%">
+        <i style="flex:1;background:var(--accent);height:${(100 * x.bookedTickets) / max}%"></i>
+        <i style="flex:1;background:var(--err);height:${(100 * x.cancelledTickets) / max}%"></i></div>`).join('')}
+    </div><div class="row muted" style="justify-content:space-between;font-size:12px"><span>${esc(d.items[0]?.key)}</span>
+    <span><span style="color:var(--accent)">■</span> đặt · <span style="color:var(--err)">■</span> hủy</span><span>${esc(d.items.at(-1)?.key)}</span></div>`;
+  }
+  const rows = byDay ? d.items.filter((x) => x.bookedOrders || x.cancelledOrders || x.bookedRevenue) : d.items;
+  const table = `<table><thead><tr><th>${byDay ? 'Ngày (giờ VN)' : 'Sự kiện'}</th><th class="num">Vé đặt</th><th class="num">Vé hủy</th><th class="num">Ròng</th><th class="num">Doanh thu ròng</th></tr></thead><tbody>
+    ${rows.map((x) => `<tr><td>${esc(byDay ? x.key : x.eventTitle || x.key)}</td><td class="num">${x.bookedTickets}</td><td class="num">${x.cancelledTickets}</td>
+      <td class="num"><b>${x.netTickets}</b></td><td class="num">${money(x.netRevenue)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Không có dữ liệu.</td></tr>'}
+    </tbody></table>`;
+  $('stOut').innerHTML = head + tiles + chart + table;
+}
+function statsRange() {
+  const qs = new URLSearchParams();
+  if ($('stFrom').value) qs.set('from', $('stFrom').value);
+  if ($('stTo').value) qs.set('to', $('stTo').value);
+  return qs;
+}
+$('stDaily').onclick = async () => {
+  const qs = statsRange(); if ($('stEvent').value) qs.set('eventId', $('stEvent').value);
+  renderStats(await api('GET', '/api/admin/stats/daily?' + qs));
+};
+$('stByEvent').onclick = async () => renderStats(await api('GET', '/api/admin/stats/events?' + statsRange()));
+{
+  const vnToday = new Date(Date.now() + 7 * 36e5).toISOString().slice(0, 10);
+  $('stTo').value = vnToday;
+  $('stFrom').value = new Date(Date.parse(vnToday) - 13 * 864e5).toISOString().slice(0, 10);
+}
+
+// ---------------- khởi động ----------------
+async function health() {
+  const r = await api('GET', '/health', undefined, { silent: true });
+  $('health').className = 'chip ' + (r.ok ? 's-ok' : 's-err');
+  $('health').textContent = r.ok ? `● server ok · auth=${r.data.auth} · publisher=${r.data.publisher}` : '● server/DB lỗi';
+}
+health(); setInterval(health, 10000);
+loadEvents();
+</script>
+</body>
+</html>
