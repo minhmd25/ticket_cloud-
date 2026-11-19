@@ -5,6 +5,7 @@ import { homePathFor, useAuth } from '../auth/AuthContext';
 import { MockFooter } from '../components/Layout';
 import { Alert, FieldError, Icon } from '../components/ui';
 import { config } from '../config';
+import { DEMO_PASSWORDS } from '../api/mock/db';
 
 interface Errors {
   username?: string;
@@ -55,9 +56,8 @@ export function LoginPage() {
     } catch (error) {
       if (error instanceof ApiError && error.code === 'INVALID_CREDENTIALS') {
         setFormError('Sai tài khoản hoặc mật khẩu. Vui lòng kiểm tra lại.');
-      } else if (error instanceof ApiError && error.details) {
-        setErrors({ username: error.details.username, password: error.details.password });
-        setFormError(error.message);
+      } else if (error instanceof ApiError && error.code === 'ROUTE_NOT_FOUND') {
+        setFormError('Backend chưa bật chức năng đăng nhập (cần chạy với AUTH_MODE=local).');
       } else {
         setFormError(errorMessage(error));
       }
@@ -120,10 +120,10 @@ export function LoginPage() {
             <p>Tài khoản mẫu (dữ liệu giả):</p>
             <ul>
               <li>
-                Khách hàng: <code>khach</code> / <code>khach123</code>
+                Khách hàng: <code>alice</code> hoặc <code>bob</code> / <code>{DEMO_PASSWORDS.customer}</code>
               </li>
               <li>
-                Quản trị viên: <code>admin</code> / <code>admin123</code>
+                Quản trị viên: <code>admin1</code> / <code>{DEMO_PASSWORDS.admin}</code>
               </li>
             </ul>
           </div>

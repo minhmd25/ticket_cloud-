@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from 'recharts';
-import type { StatsGroupBy, StatsItem } from '../../api';
+import type { StatsGroupBy } from '../../api';
+
+/** Một cột/thanh trên biểu đồ: số vé đặt và hủy của một ngày hoặc một sự kiện. */
+export interface ChartRow {
+  key: string;
+  label: string;
+  booked: number;
+  cancelled: number;
+}
 import { formatNumber } from '../../lib/format';
 
 interface ChartColors {
@@ -80,8 +88,25 @@ export function niceTicks(max: number): number[] {
   return Array.from({ length: count + 1 }, (_, i) => i * step);
 }
 
-export function StatsChart({ items, groupBy }: { items: StatsItem[]; groupBy: StatsGroupBy }) {
+/** Tắt hiệu ứng của biểu đồ khi người dùng bật "giảm chuyển động" trong hệ điều hành. */
+function useReducedMotion(): boolean {
+  const query = '(prefers-reduced-motion: reduce)';
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(query);
+    const update = () => setReduced(mq.matches);
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return reduced;
+}
+
+export function StatsChart({ items, groupBy }: { items: ChartRow[]; groupBy: StatsGroupBy }) {
   const c = useChartColors();
+  const animate = !useReducedMotion();
   const axisTick = { fill: c.muted, fontSize: 12 };
   const ticks = niceTicks(Math.max(0, ...items.flatMap((i) => [i.booked, i.cancelled])));
   const domain: [number, number] = [0, ticks[ticks.length - 1]];
@@ -123,7 +148,7 @@ export function StatsChart({ items, groupBy }: { items: StatsItem[]; groupBy: St
               />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: c.hover }} />
               {SERIES.map((s) => (
-                <Bar key={s.key} dataKey={s.key} name={s.label} fill={c[s.key]} radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar key={s.key} dataKey={s.key} name={s.label} fill={c[s.key]} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={animate} />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -157,7 +182,7 @@ export function StatsChart({ items, groupBy }: { items: StatsItem[]; groupBy: St
               />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: c.hover }} />
               {SERIES.map((s) => (
-                <Bar key={s.key} dataKey={s.key} name={s.label} fill={c[s.key]} radius={[0, 4, 4, 0]} maxBarSize={24} />
+                <Bar key={s.key} dataKey={s.key} name={s.label} fill={c[s.key]} radius={[0, 4, 4, 0]} maxBarSize={24} isAnimationActive={animate} />
               ))}
             </BarChart>
           </ResponsiveContainer>

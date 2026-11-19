@@ -53,7 +53,7 @@ export function Layout({ variant, children }: { variant: 'customer' | 'admin'; c
             )}
           </nav>
           <div className="usermenu">
-            <span className="usermenu__name" title={user?.fullName}>
+            <span className="usermenu__name">
               {user?.username}
               <span className="usermenu__role">{user?.role === 'admin' ? 'Quản trị viên' : 'Khách hàng'}</span>
             </span>

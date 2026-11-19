@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { errorMessage } from '../api';
-import { categoryLabel, statusLabel } from '../lib/format';
+import { errorMessage, type Pagination } from '../api';
+import { categoryLabel, eventStatusLabel, formatNumber, statusLabel } from '../lib/format';
 
 export function Loading({ label = 'Đang tải dữ liệu…' }: { label?: string }) {
   return (
@@ -77,6 +77,43 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function CategoryBadge({ category }: { category: string }) {
   return <span className={`tag tag--${category}`}>{categoryLabel(category)}</span>;
+}
+
+export function EventStatusBadge({ status }: { status: string }) {
+  const kind = status === 'PUBLISHED' ? 'good' : status === 'CANCELLED' ? 'danger' : 'muted';
+  return <span className={`badge badge--${kind}`}>{eventStatusLabel(status)}</span>;
+}
+
+/** Chuyển trang cho các danh sách backend trả theo trang. Ẩn khi chỉ có một trang. */
+export function Pager({
+  pagination,
+  onPage,
+  disabled,
+}: {
+  pagination: Pagination | undefined;
+  onPage: (page: number) => void;
+  disabled?: boolean;
+}) {
+  if (!pagination || pagination.totalPages <= 1) return null;
+  const { page, totalPages, total } = pagination;
+  return (
+    <nav className="pager" aria-label="Phân trang">
+      <button type="button" className="btn btn--secondary btn--sm" onClick={() => onPage(page - 1)} disabled={disabled || page <= 1}>
+        ← Trang trước
+      </button>
+      <span className="pager__info">
+        Trang {page}/{totalPages} · {formatNumber(total)} mục
+      </span>
+      <button
+        type="button"
+        className="btn btn--secondary btn--sm"
+        onClick={() => onPage(page + 1)}
+        disabled={disabled || page >= totalPages}
+      >
+        Trang sau →
+      </button>
+    </nav>
+  );
 }
 
 export function PageHeader({

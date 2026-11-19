@@ -1,4 +1,4 @@
-import type { EventCategory, OrderStatus } from '../api/types';
+import type { EventStatus, OrderStatus } from '../api/types';
 import { TIME_ZONE } from './dates';
 
 const currencyFormat = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
@@ -42,14 +42,33 @@ export function formatClock(iso: string): string {
   return d ? timeFormat.format(d) : '—';
 }
 
-export const CATEGORY_OPTIONS: Array<{ value: EventCategory; label: string }> = [
+/** Loại hình hay dùng. Backend nhận chuỗi chữ thường không dấu bất kỳ, nên có thể có thêm loại khác. */
+export const CATEGORY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'concert', label: 'Concert' },
-  { value: 'sports', label: 'Thể thao' },
+  { value: 'sport', label: 'Thể thao' },
   { value: 'musical', label: 'Nhạc kịch' },
+  { value: 'theater', label: 'Kịch' },
+  { value: 'conference', label: 'Hội thảo' },
+  { value: 'festival', label: 'Lễ hội' },
 ];
 
+const EXTRA_CATEGORY_LABELS: Record<string, string> = { sports: 'Thể thao', theatre: 'Kịch', other: 'Khác' };
+
 export function categoryLabel(category: string): string {
-  return CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category;
+  const known = CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? EXTRA_CATEGORY_LABELS[category];
+  if (known) return known;
+  const words = category.replace(/[-_]+/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : category;
+}
+
+export const EVENT_STATUS_OPTIONS: Array<{ value: EventStatus; label: string }> = [
+  { value: 'PUBLISHED', label: 'Đang mở bán' },
+  { value: 'DRAFT', label: 'Nháp' },
+  { value: 'CANCELLED', label: 'Đã hủy' },
+];
+
+export function eventStatusLabel(status: string): string {
+  return EVENT_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
 }
 
 export const STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
@@ -64,4 +83,17 @@ export function statusLabel(status: string): string {
 export function isPast(iso: string | null | undefined, now = new Date()): boolean {
   const d = valid(iso);
   return d ? d.getTime() <= now.getTime() : false;
+}
+
+/** Mã đơn rút gọn để hiển thị: 8 ký tự đầu của UUID, viết hoa. */
+export function shortId(id: string): string {
+  return id.length > 12 ? id.slice(0, 8).toUpperCase() : id;
+}
+
+/** "20:00 – 22:30" nếu cùng ngày, ngược lại hiện đầy đủ giờ kết thúc. */
+export function formatTimeRange(startIso: string, endIso: string | null | undefined): string {
+  const start = formatEventTime(startIso);
+  if (!endIso) return start;
+  const sameDay = formatDateTime(startIso).slice(6) === formatDateTime(endIso).slice(6);
+  return sameDay ? `${start} – ${formatDateTime(endIso).slice(0, 5)}` : `${start} → ${formatDateTime(endIso)}`;
 }

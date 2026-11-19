@@ -20,8 +20,7 @@ export function validateTicketType(values: Values): Errors {
   if (!values.price.trim()) errors.price = 'Vui lòng nhập giá.';
   else if (!/^\d+$/.test(values.price.trim())) errors.price = 'Giá phải là số nguyên không âm (VND).';
   if (!values.totalQuantity.trim()) errors.totalQuantity = 'Vui lòng nhập số lượng.';
-  else if (!/^\d+$/.test(values.totalQuantity.trim()) || Number(values.totalQuantity) <= 0)
-    errors.totalQuantity = 'Số lượng phải là số nguyên dương.';
+  else if (!/^\d+$/.test(values.totalQuantity.trim())) errors.totalQuantity = 'Số lượng phải là số nguyên không âm.';
   return errors;
 }
 
@@ -31,9 +30,15 @@ const toInput = (v: Values): TicketTypeInput => ({
   totalQuantity: Number(v.totalQuantity),
 });
 
+/** Đổi lỗi của backend thành lỗi dưới từng ô nhập. */
 function pickErrors(error: unknown): Errors {
-  if (!(error instanceof ApiError) || !error.details) return {};
-  const { name, price, totalQuantity } = error.details;
+  if (!(error instanceof ApiError)) return {};
+  if (error.code === 'QUANTITY_BELOW_RESERVED') {
+    const reserved = error.detailNumber('reserved');
+    return { totalQuantity: reserved !== undefined ? `Tối thiểu ${formatNumber(reserved)} vé.` : error.message };
+  }
+  if (error.code === 'TICKET_TYPE_NAME_TAKEN') return { name: 'Sự kiện đã có hạng vé cùng tên.' };
+  const { name, price, totalQuantity } = error.fieldErrors;
   return { name, price, totalQuantity };
 }
 
@@ -41,10 +46,12 @@ function pickErrors(error: unknown): Errors {
 export function TicketTypeManager({
   eventId,
   ticketTypes,
+  readOnly,
   onChanged,
 }: {
   eventId: string;
   ticketTypes: TicketType[];
+  readOnly?: boolean;
   onChanged: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -66,12 +73,22 @@ export function TicketTypeManager({
     const found = validateTicketType(editValues);
     setEditErrors(found);
     if (Object.values(found).some(Boolean)) return;
+    // PATCH: chỉ gửi trường đã đổi.
+    const input = toInput(editValues);
+    const patch: Partial<TicketTypeInput> = {};
+    if (input.name !== t.name) patch.name = input.name;
+    if (input.price !== t.price) patch.price = input.price;
+    if (input.totalQuantity !== t.totalQuantity) patch.totalQuantity = input.totalQuantity;
+    if (Object.keys(patch).length === 0) {
+      setEditingId(null);
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      await api.admin.updateTicketType(t.id, toInput(editValues));
+      await api.admin.updateTicketType(t.id, patch);
       setEditingId(null);
-      setMessage({ kind: 'success', text: `Đã cập nhật hạng vé "${editValues.name.trim()}".` });
+      setMessage({ kind: 'success', text: `Đã cập nhật hạng vé "${input.name}".` });
       onChanged();
     } catch (error) {
       // Hiển thị nguyên văn lỗi backend, ví dụ giảm số lượng xuống dưới số vé đã đặt.
@@ -143,21 +160,22 @@ export function TicketTypeManager({
               <th scope="col" className="num">
                 Còn lại
               </th>
-              <th scope="col">
-                <span className="sr-only">Thao tác</span>
-              </th>
+              {!readOnly && (
+                <th scope="col">
+                  <span className="sr-only">Thao tác</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {ticketTypes.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted">
-                  Chưa có hạng vé nào. Thêm hạng vé ở bên dưới để mở bán.
+                  Chưa có hạng vé nào.{!readOnly && ' Thêm hạng vé ở bên dưới để mở bán.'}
                 </td>
               </tr>
             )}
             {ticketTypes.map((t) => {
-              const sold = t.totalQuantity - t.remainingQuantity;
               const editing = editingId === String(t.id);
               return editing ? (
                 <tr key={t.id} className="row-editing">
@@ -166,7 +184,7 @@ export function TicketTypeManager({
                   <td className="num">
                     {editInput('totalQuantity', `Số lượng bán hạng vé ${t.name}`, { inputMode: 'numeric' })}
                   </td>
-                  <td className="num">{formatNumber(sold)}</td>
+                  <td className="num">{formatNumber(t.reservedQuantity)}</td>
                   <td className="num">—</td>
                   <td className="actions">
                     <button type="button" className="btn btn--primary btn--sm" onClick={() => saveEdit(t)} disabled={busy}>
@@ -187,21 +205,27 @@ export function TicketTypeManager({
                   <td className="cell-strong">{t.name}</td>
                   <td className="num">{formatCurrency(t.price)}</td>
                   <td className="num">{formatNumber(t.totalQuantity)}</td>
-                  <td className="num">{formatNumber(sold)}</td>
+                  <td className="num">{formatNumber(t.reservedQuantity)}</td>
                   <td className="num">
-                    {t.remainingQuantity > 0 ? formatNumber(t.remainingQuantity) : <span className="badge badge--muted">Hết vé</span>}
+                    {t.availableQuantity > 0 ? (
+                      formatNumber(t.availableQuantity)
+                    ) : (
+                      <span className="badge badge--muted">Hết vé</span>
+                    )}
                   </td>
-                  <td className="actions">
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--sm"
-                      onClick={() => startEdit(t)}
-                      disabled={busy || editingId !== null}
-                      aria-label={`Sửa hạng vé ${t.name}`}
-                    >
-                      Sửa
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="actions">
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => startEdit(t)}
+                        disabled={busy || editingId !== null}
+                        aria-label={`Sửa hạng vé ${t.name}`}
+                      >
+                        Sửa
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -209,58 +233,60 @@ export function TicketTypeManager({
         </table>
       </div>
 
-      <form className="form ticket-add" onSubmit={addTicketType} noValidate aria-label="Thêm hạng vé">
-        <h3 className="subsection-title">Thêm hạng vé</h3>
-        <div className="ticket-add__fields">
-          <div className="field">
-            <label htmlFor="new-name">Tên hạng vé</label>
-            <input
-              id="new-name"
-              value={newValues.name}
-              maxLength={100}
-              onChange={(e) => setNewValues((v) => ({ ...v, name: e.target.value }))}
-              aria-invalid={Boolean(newErrors.name)}
-              aria-describedby={newErrors.name ? 'new-name-error' : undefined}
-              disabled={busy}
-              placeholder="Ví dụ: VIP"
-            />
-            <FieldError id="new-name-error" message={newErrors.name} />
+      {!readOnly && (
+        <form className="form ticket-add" onSubmit={addTicketType} noValidate aria-label="Thêm hạng vé">
+          <h3 className="subsection-title">Thêm hạng vé</h3>
+          <div className="ticket-add__fields">
+            <div className="field">
+              <label htmlFor="new-name">Tên hạng vé</label>
+              <input
+                id="new-name"
+                value={newValues.name}
+                maxLength={100}
+                onChange={(e) => setNewValues((v) => ({ ...v, name: e.target.value }))}
+                aria-invalid={Boolean(newErrors.name)}
+                aria-describedby={newErrors.name ? 'new-name-error' : undefined}
+                disabled={busy}
+                placeholder="Ví dụ: VIP"
+              />
+              <FieldError id="new-name-error" message={newErrors.name} />
+            </div>
+            <div className="field">
+              <label htmlFor="new-price">Giá (VND)</label>
+              <input
+                id="new-price"
+                inputMode="numeric"
+                value={newValues.price}
+                onChange={(e) => setNewValues((v) => ({ ...v, price: e.target.value }))}
+                aria-invalid={Boolean(newErrors.price)}
+                aria-describedby={newErrors.price ? 'new-price-error' : undefined}
+                disabled={busy}
+                placeholder="500000"
+              />
+              <FieldError id="new-price-error" message={newErrors.price} />
+            </div>
+            <div className="field">
+              <label htmlFor="new-quantity">Số lượng bán</label>
+              <input
+                id="new-quantity"
+                inputMode="numeric"
+                value={newValues.totalQuantity}
+                onChange={(e) => setNewValues((v) => ({ ...v, totalQuantity: e.target.value }))}
+                aria-invalid={Boolean(newErrors.totalQuantity)}
+                aria-describedby={newErrors.totalQuantity ? 'new-quantity-error' : undefined}
+                disabled={busy}
+                placeholder="100"
+              />
+              <FieldError id="new-quantity-error" message={newErrors.totalQuantity} />
+            </div>
+            <div className="ticket-add__submit">
+              <button type="submit" className="btn btn--primary" disabled={busy}>
+                Thêm hạng vé
+              </button>
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="new-price">Giá (VND)</label>
-            <input
-              id="new-price"
-              inputMode="numeric"
-              value={newValues.price}
-              onChange={(e) => setNewValues((v) => ({ ...v, price: e.target.value }))}
-              aria-invalid={Boolean(newErrors.price)}
-              aria-describedby={newErrors.price ? 'new-price-error' : undefined}
-              disabled={busy}
-              placeholder="500000"
-            />
-            <FieldError id="new-price-error" message={newErrors.price} />
-          </div>
-          <div className="field">
-            <label htmlFor="new-quantity">Số lượng bán</label>
-            <input
-              id="new-quantity"
-              inputMode="numeric"
-              value={newValues.totalQuantity}
-              onChange={(e) => setNewValues((v) => ({ ...v, totalQuantity: e.target.value }))}
-              aria-invalid={Boolean(newErrors.totalQuantity)}
-              aria-describedby={newErrors.totalQuantity ? 'new-quantity-error' : undefined}
-              disabled={busy}
-              placeholder="100"
-            />
-            <FieldError id="new-quantity-error" message={newErrors.totalQuantity} />
-          </div>
-          <div className="ticket-add__submit">
-            <button type="submit" className="btn btn--primary" disabled={busy}>
-              Thêm hạng vé
-            </button>
-          </div>
-        </div>
-      </form>
+        </form>
+      )}
     </div>
   );
 }

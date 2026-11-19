@@ -1,32 +1,40 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, type OrderStatus } from '../../api';
-import { EmptyState, ErrorState, Loading, PageHeader, StatusBadge } from '../../components/ui';
-import { formatDateTime, formatNumber, STATUS_OPTIONS } from '../../lib/format';
+import { EmptyState, ErrorState, Loading, PageHeader, Pager, StatusBadge } from '../../components/ui';
+import { formatCurrency, formatDateTime, formatNumber, shortId, STATUS_OPTIONS } from '../../lib/format';
 import { useAsync } from '../../lib/useAsync';
+
+const PAGE_SIZE = 20;
 
 export function AdminOrdersPage() {
   const [params, setParams] = useSearchParams();
   const eventId = params.get('eventId') ?? '';
   const rawStatus = params.get('status') ?? '';
   const status = STATUS_OPTIONS.some((o) => o.value === rawStatus) ? (rawStatus as OrderStatus) : '';
+  const page = Math.max(1, Number(params.get('page')) || 1);
 
-  const events = useAsync(() => api.listEvents(), []);
+  // Danh sách để chọn sự kiện: mọi trạng thái, kể cả sự kiện đã kết thúc.
+  const events = useAsync(() => api.admin.listEvents({ includePast: true, limit: 100 }), []);
   const orders = useAsync(
-    () => api.admin.listOrders({ eventId: eventId || undefined, status: status || undefined }),
-    [eventId, status],
+    () => api.admin.listOrders({ eventId: eventId || undefined, status: status || undefined, page, limit: PAGE_SIZE }),
+    [eventId, status, page],
     { keepPreviousData: true },
   );
 
-  const updateFilter = (key: 'eventId' | 'status', value: string) => {
+  const update = (key: 'eventId' | 'status' | 'page', value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
+    if (key !== 'page') next.delete('page');
     setParams(next);
   };
 
-  const list = orders.data ?? [];
-  const totalTickets = list.reduce((sum, o) => sum + o.quantity, 0);
+  const list = orders.data?.data ?? [];
+  const summary = orders.data?.summary ?? {};
+  const confirmed = summary.CONFIRMED;
+  const cancelled = summary.CANCELLED;
   const hasFilter = Boolean(eventId || status);
+  const eventOptions = events.data?.data ?? [];
 
   return (
     <>
@@ -43,18 +51,19 @@ export function AdminOrdersPage() {
       <div className="filters" role="search" aria-label="Lọc đơn đặt vé">
         <div className="field field--inline">
           <label htmlFor="filter-event">Sự kiện</label>
-          <select id="filter-event" value={eventId} onChange={(e) => updateFilter('eventId', e.target.value)}>
+          <select id="filter-event" value={eventId} onChange={(e) => update('eventId', e.target.value)}>
             <option value="">Tất cả sự kiện</option>
-            {(events.data ?? []).map((ev) => (
+            {eventId && !eventOptions.some((ev) => ev.id === eventId) && <option value={eventId}>Sự kiện đang chọn</option>}
+            {eventOptions.map((ev) => (
               <option key={ev.id} value={String(ev.id)}>
-                {ev.name}
+                {ev.title}
               </option>
             ))}
           </select>
         </div>
         <div className="field field--inline">
           <label htmlFor="filter-status">Trạng thái</label>
-          <select id="filter-status" value={status} onChange={(e) => updateFilter('status', e.target.value)}>
+          <select id="filter-status" value={status} onChange={(e) => update('status', e.target.value)}>
             <option value="">Tất cả trạng thái</option>
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -80,8 +89,11 @@ export function AdminOrdersPage() {
         </EmptyState>
       ) : (
         <>
-          <p className="muted small" aria-live="polite">
-            {formatNumber(list.length)} đơn · {formatNumber(totalTickets)} vé
+          <p className="muted small summary-line" aria-live="polite">
+            {formatNumber(orders.data.pagination.total)} đơn
+            {confirmed &&
+              ` · Đã xác nhận: ${formatNumber(confirmed.orders)} đơn, ${formatNumber(confirmed.tickets)} vé, ${formatCurrency(confirmed.amount)}`}
+            {cancelled && ` · Đã hủy: ${formatNumber(cancelled.orders)} đơn, ${formatNumber(cancelled.tickets)} vé`}
           </p>
           <div className={`table-wrap card ${orders.loading ? 'is-refreshing' : ''}`}>
             <table className="table">
@@ -105,17 +117,19 @@ export function AdminOrdersPage() {
               <tbody>
                 {list.map((o) => (
                   <tr key={o.id}>
-                    <td className="code">{o.id}</td>
-                    <td>{o.eventName}</td>
-                    <td>{o.ticketTypeName}</td>
+                    <td className="code" title={o.id}>
+                      {shortId(o.id)}
+                    </td>
+                    <td>{o.event.title}</td>
+                    <td>{o.ticketType.name}</td>
                     <td className="num">{formatNumber(o.quantity)}</td>
-                    <td>{o.username}</td>
+                    <td>{o.userId}</td>
                     <td>
                       <StatusBadge status={o.status} />
                     </td>
                     <td className="nowrap">{formatDateTime(o.createdAt)}</td>
                     <td>
-                      <Link to={`/admin/orders/${encodeURIComponent(o.id)}`} aria-label={`Xem chi tiết đơn ${o.id}`}>
+                      <Link to={`/admin/orders/${encodeURIComponent(o.id)}`} aria-label={`Xem chi tiết đơn ${shortId(o.id)}`}>
                         Chi tiết
                       </Link>
                     </td>
@@ -124,6 +138,11 @@ export function AdminOrdersPage() {
               </tbody>
             </table>
           </div>
+          <Pager
+            pagination={orders.data.pagination}
+            onPage={(p) => update('page', p > 1 ? String(p) : '')}
+            disabled={orders.loading}
+          />
         </>
       )}
     </>

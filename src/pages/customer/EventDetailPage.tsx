@@ -1,8 +1,8 @@
 import { Link, useParams } from 'react-router-dom';
-import { api, ApiError } from '../../api';
+import { api, isNotFound } from '../../api';
 import { useAuth } from '../../auth/AuthContext';
 import { CategoryBadge, EmptyState, ErrorState, Icon, Loading } from '../../components/ui';
-import { formatCurrency, formatEventTime, formatNumber, isPast } from '../../lib/format';
+import { formatCurrency, formatNumber, formatTimeRange, isPast } from '../../lib/format';
 import { useAsync } from '../../lib/useAsync';
 import { BookingForm } from './BookingForm';
 
@@ -18,11 +18,13 @@ export function EventDetailPage() {
   );
 
   if (error && !event) {
-    if (error instanceof ApiError && error.status === 404) {
+    if (isNotFound(error)) {
       return (
         <>
           {back}
-          <EmptyState title="Không tìm thấy sự kiện">Sự kiện có thể đã bị xóa hoặc đường dẫn không đúng.</EmptyState>
+          <EmptyState title="Không tìm thấy sự kiện">
+            Sự kiện có thể đã bị hủy, chưa mở bán hoặc đường dẫn không đúng.
+          </EmptyState>
         </>
       );
     }
@@ -35,7 +37,7 @@ export function EventDetailPage() {
   }
   if (!event) return <Loading label="Đang tải thông tin sự kiện…" />;
 
-  const ended = isPast(event.startTime);
+  const started = isPast(event.startTime);
 
   return (
     <>
@@ -43,10 +45,10 @@ export function EventDetailPage() {
       <div className="detail-layout">
         <article className="detail-main">
           <CategoryBadge category={event.category} />
-          <h1 className="detail-title">{event.name}</h1>
+          <h1 className="detail-title">{event.title}</h1>
           <p className="meta meta--lg">
             <Icon name="calendar" />
-            {formatEventTime(event.startTime)}
+            {formatTimeRange(event.startTime, event.endTime)}
           </p>
           <p className="meta meta--lg">
             <Icon name="pin" />
@@ -74,11 +76,14 @@ export function EventDetailPage() {
                 <tbody>
                   {event.ticketTypes.map((t) => (
                     <tr key={t.id}>
-                      <td>{t.name}</td>
+                      <td>
+                        {t.name}
+                        {t.description && <div className="muted small">{t.description}</div>}
+                      </td>
                       <td className="num">{formatCurrency(t.price)}</td>
                       <td className="num">
-                        {t.remainingQuantity > 0 ? (
-                          `${formatNumber(t.remainingQuantity)} / ${formatNumber(t.totalQuantity)}`
+                        {t.availableQuantity > 0 ? (
+                          `${formatNumber(t.availableQuantity)} / ${formatNumber(t.totalQuantity)}`
                         ) : (
                           <span className="badge badge--muted">Hết vé</span>
                         )}
@@ -94,7 +99,7 @@ export function EventDetailPage() {
         <aside className="detail-side card" aria-label="Đặt vé">
           <h2 className="section-title section-title--flush">Đặt vé</h2>
           {loading && <p className="muted small">Đang cập nhật số vé…</p>}
-          {ended ? (
+          {started ? (
             <p className="muted">Sự kiện đã diễn ra, không thể đặt vé.</p>
           ) : user?.role === 'admin' ? (
             <p className="muted">Bạn đang đăng nhập bằng tài khoản quản trị. Hãy dùng tài khoản khách hàng để đặt vé.</p>

@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { api, type StatsGroupBy } from '../../api';
 import { Alert, EmptyState, ErrorState, Icon, Loading, PageHeader } from '../../components/ui';
-import { addDays, vnDayKey } from '../../lib/dates';
-import { formatClock, formatNumber } from '../../lib/format';
+import { addDays, shortDayLabel, vnDayKey } from '../../lib/dates';
+import { formatClock, formatCurrency, formatDateTime, formatNumber } from '../../lib/format';
 import { useAsync } from '../../lib/useAsync';
-import { StatsChart } from './StatsChart';
+import { StatsChart, type ChartRow } from './StatsChart';
 
 const RANGE_PRESETS = [
   { days: 7, label: '7 ngày gần nhất' },
   { days: 14, label: '14 ngày gần nhất' },
   { days: 30, label: '30 ngày gần nhất' },
+  { days: 90, label: '90 ngày gần nhất' },
 ];
 
 const GROUP_OPTIONS: Array<{ value: StatsGroupBy; label: string }> = [
@@ -25,21 +26,33 @@ export function AdminDashboardPage() {
   const to = vnDayKey(new Date());
   const from = addDays(to, -(days - 1));
 
-  const stats = useAsync(() => api.admin.getStats({ groupBy, from, to }), [groupBy, from, to], {
-    keepPreviousData: true,
-  });
+  // Backend GCP lấy số vé từ dịch vụ thống kê trên Azure, doanh thu từ DB của GCP.
+  const stats = useAsync(
+    () => (groupBy === 'day' ? api.admin.statsDaily({ from, to }) : api.admin.statsByEvent({ from, to })),
+    [groupBy, from, to],
+    { keepPreviousData: true },
+  );
   const data = stats.data;
   const refreshing = stats.loading && Boolean(data);
-  const booked = data?.totals.booked ?? 0;
-  const cancelled = data?.totals.cancelled ?? 0;
-  const hasActivity = Boolean(data?.items.some((i) => i.booked > 0 || i.cancelled > 0));
-  const firstColumn = data?.groupBy === 'event' ? 'Sự kiện' : 'Ngày';
+  const shownGroup = data?.query?.groupBy ?? groupBy;
+  const totals = data?.totals;
+  const booked = totals?.bookedTickets ?? 0;
+  const cancelled = totals?.cancelledTickets ?? 0;
+
+  const rows: ChartRow[] = (data?.items ?? []).map((i) => ({
+    key: i.key,
+    label: shownGroup === 'day' ? shortDayLabel(i.key) : i.eventTitle || i.key,
+    booked: i.bookedTickets,
+    cancelled: i.cancelledTickets,
+  }));
+  const hasActivity = rows.some((r) => r.booked > 0 || r.cancelled > 0);
+  const firstColumn = shownGroup === 'event' ? 'Sự kiện' : 'Ngày';
 
   return (
     <>
       <PageHeader
         title="Thống kê vé"
-        subtitle="Số vé đã đặt và đã hủy, tổng hợp từ dịch vụ thống kê trên Azure thông qua backend GCP."
+        subtitle="Số vé đặt và hủy do dịch vụ thống kê trên Azure tổng hợp, lấy qua backend GCP. Doanh thu lấy từ dữ liệu đơn trên GCP."
       />
 
       <div className="filters" aria-label="Bộ lọc thống kê">
@@ -72,11 +85,17 @@ export function AdminDashboardPage() {
         </button>
         {data && (
           <span className="muted small filters__meta" aria-live="polite">
-            Cập nhật lúc {formatClock(data.generatedAt)}
+            Cập nhật lúc {formatClock(data.fetchedAt)}
           </span>
         )}
       </div>
 
+      {data?.stale && (
+        <Alert kind="warning">
+          Dịch vụ thống kê trên Azure đang không phản hồi. Số vé bên dưới là số liệu lưu tạm lúc{' '}
+          {formatDateTime(data.fetchedAt)}.
+        </Alert>
+      )}
       {stats.error && data && (
         <Alert kind="warning">
           Không cập nhật được số liệu mới: {stats.error instanceof Error ? stats.error.message : 'lỗi không xác định'}. Đang
@@ -86,8 +105,8 @@ export function AdminDashboardPage() {
 
       {stats.error && !data ? (
         <ErrorState error={stats.error} onRetry={stats.reload} title="Không lấy được số liệu thống kê" />
-      ) : !data ? (
-        <Loading label="Đang tải số liệu thống kê…" />
+      ) : !data || !totals ? (
+        <Loading label="Đang tải số liệu thống kê… (dịch vụ Azure có thể mất vài giây để khởi động)" />
       ) : (
         <div className={`dashboard-body ${refreshing ? 'is-refreshing' : ''}`} aria-busy={stats.loading}>
           <div className="stat-grid">
@@ -96,7 +115,7 @@ export function AdminDashboardPage() {
               <p className="stat__value">{formatNumber(booked)}</p>
               <p className="stat__note">
                 <span className="legend__swatch legend__swatch--booked" aria-hidden="true" />
-                trong {days} ngày gần nhất
+                {formatNumber(totals.bookedOrders)} lượt đặt trong {days} ngày
               </p>
             </div>
             <div className="stat card">
@@ -108,21 +127,27 @@ export function AdminDashboardPage() {
               </p>
             </div>
             <div className="stat card">
-              <p className="stat__label">Chênh lệch đặt − hủy</p>
-              <p className="stat__value">{formatNumber(booked - cancelled)}</p>
+              <p className="stat__label">Vé thực bán (đặt − hủy)</p>
+              <p className="stat__value">{formatNumber(totals.netTickets)}</p>
               <p className="stat__note">vé</p>
+            </div>
+            <div className="stat card">
+              <p className="stat__label">Doanh thu thực</p>
+              <p className="stat__value">{formatCurrency(totals.netRevenue)}</p>
+              <p className="stat__note">đặt {formatCurrency(totals.bookedRevenue)}, hủy {formatCurrency(totals.cancelledRevenue)}</p>
             </div>
           </div>
 
           <section className="card" aria-labelledby="chart-heading">
             <h2 id="chart-heading" className="section-title section-title--flush">
-              Vé đặt và hủy {data.groupBy === 'day' ? 'theo ngày' : 'theo sự kiện'}
+              Vé đặt và hủy {shownGroup === 'day' ? 'theo ngày' : 'theo sự kiện'}
             </h2>
             {hasActivity ? (
-              <StatsChart items={data.items} groupBy={data.groupBy} />
+              <StatsChart items={rows} groupBy={shownGroup} />
             ) : (
               <EmptyState title="Chưa có số liệu">Không có vé nào được đặt hoặc hủy trong khoảng thời gian này.</EmptyState>
             )}
+            {data.notes?.tickets && <p className="note">{data.notes.tickets}.</p>}
           </section>
 
           {data.items.length > 0 && (
@@ -142,17 +167,21 @@ export function AdminDashboardPage() {
                         Vé đã hủy
                       </th>
                       <th scope="col" className="num">
-                        Chênh lệch
+                        Vé thực bán
+                      </th>
+                      <th scope="col" className="num">
+                        Doanh thu thực
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.items.map((i) => (
+                    {data.items.map((i, idx) => (
                       <tr key={i.key}>
-                        <th scope="row">{i.label}</th>
-                        <td className="num">{formatNumber(i.booked)}</td>
-                        <td className="num">{formatNumber(i.cancelled)}</td>
-                        <td className="num">{formatNumber(i.booked - i.cancelled)}</td>
+                        <th scope="row">{rows[idx].label}</th>
+                        <td className="num">{formatNumber(i.bookedTickets)}</td>
+                        <td className="num">{formatNumber(i.cancelledTickets)}</td>
+                        <td className="num">{formatNumber(i.netTickets)}</td>
+                        <td className="num">{formatCurrency(i.netRevenue)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -161,7 +190,8 @@ export function AdminDashboardPage() {
                       <th scope="row">Tổng</th>
                       <td className="num">{formatNumber(booked)}</td>
                       <td className="num">{formatNumber(cancelled)}</td>
-                      <td className="num">{formatNumber(booked - cancelled)}</td>
+                      <td className="num">{formatNumber(totals.netTickets)}</td>
+                      <td className="num">{formatCurrency(totals.netRevenue)}</td>
                     </tr>
                   </tfoot>
                 </table>

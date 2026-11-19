@@ -1,7 +1,8 @@
 import type { User } from '../api/types';
 
 // Phiên đăng nhập dùng chung cho cả khu vực khách hàng và quản trị.
-// Lưu trong localStorage để tải lại trang không phải đăng nhập lại.
+// Lưu trong sessionStorage theo hướng dẫn của backend: tải lại trang vẫn giữ phiên,
+// đóng tab thì phiên mất; mỗi tab có thể đăng nhập một tài khoản khác nhau.
 
 export interface Session {
   token: string;
@@ -12,7 +13,7 @@ const SESSION_KEY = 'nhom5.session';
 
 function read(): Session | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     return parsed?.token && parsed?.user ? parsed : null;
@@ -34,7 +35,7 @@ export function getToken(): string | null {
 export function setSession(session: Session): void {
   current = session;
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch {
     // Trình duyệt chặn lưu trữ: phiên vẫn dùng được tới khi tải lại trang.
   }
@@ -43,7 +44,7 @@ export function setSession(session: Session): void {
 export function clearSession(): void {
   current = null;
   try {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   } catch {
     // bỏ qua
   }

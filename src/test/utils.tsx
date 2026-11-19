@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 import { api } from '../api';
 import { setSession } from '../auth/session';
+import { DEMO_PASSWORDS } from '../api/mock/db';
 
 export function renderApp(path = '/') {
   const user = userEvent.setup();
@@ -16,8 +17,8 @@ export function renderApp(path = '/') {
 }
 
 /** Đăng nhập thẳng qua API (bỏ qua màn hình) để test đi nhanh tới trang cần kiểm tra. */
-export async function loginAs(username: 'khach' | 'khach2' | 'admin') {
-  const password = username === 'admin' ? 'admin123' : 'khach123';
+export async function loginAs(username: 'alice' | 'bob' | 'admin1') {
+  const password = username === 'admin1' ? DEMO_PASSWORDS.admin : DEMO_PASSWORDS.customer;
   const session = await api.login(username, password);
   setSession(session);
   return session;

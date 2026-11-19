@@ -6,26 +6,49 @@ import { mockTransport } from './mock/server';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
-  readonly details?: Record<string, string>;
+  /** `error.details` nguyên văn từ backend (ví dụ `{ requested, available }`). */
+  readonly details: unknown;
+  /** Lỗi theo từng trường nhập, lấy từ `details: [{ path, message }]` của VALIDATION_ERROR. */
+  readonly fieldErrors: Record<string, string>;
 
-  constructor(status: number, code: string, message: string, details?: Record<string, string>) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.fieldErrors = toFieldErrors(details);
   }
 
   get isNetworkError(): boolean {
     return this.status === 0;
   }
+
+  /** Đọc một số trong `details`, ví dụ `available` hay `reserved`. */
+  detailNumber(key: string): number | undefined {
+    const value = (this.details as Record<string, unknown> | null)?.[key];
+    return typeof value === 'number' ? value : undefined;
+  }
 }
 
-type QueryValue = string | number | undefined | null;
+function toFieldErrors(details: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (Array.isArray(details)) {
+    for (const item of details) {
+      const path = (item as { path?: unknown })?.path;
+      const message = (item as { message?: unknown })?.message;
+      if (typeof path === 'string' && typeof message === 'string' && !(path in out)) out[path] = message;
+    }
+  }
+  return out;
+}
+
+type QueryValue = string | number | boolean | undefined | null;
 
 interface RequestOptions {
   body?: unknown;
   query?: Record<string, QueryValue>;
+  headers?: Record<string, string>;
   /** Gửi kèm mã xác thực nếu đang đăng nhập. Mặc định: có. */
   auth?: boolean;
   /** Dùng mã xác thực này thay cho mã của phiên hiện tại. */
@@ -38,13 +61,14 @@ const DEFAULT_MESSAGES: Record<number, string> = {
   403: 'Bạn không có quyền thực hiện thao tác này.',
   404: 'Không tìm thấy dữ liệu.',
   409: 'Dữ liệu đã thay đổi. Vui lòng tải lại và thử lại.',
+  422: 'Yêu cầu không thực hiện được.',
   500: 'Máy chủ gặp lỗi. Vui lòng thử lại sau.',
 };
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    if (value !== undefined && value !== null && value !== '' && value !== false) params.set(key, String(value));
   }
   const qs = params.toString();
   return `${config.apiBaseUrl}${path}${qs ? `?${qs}` : ''}`;
@@ -64,7 +88,7 @@ async function readBody(res: Response): Promise<unknown> {
 interface ErrorBody {
   code?: string;
   message?: string;
-  details?: Record<string, string>;
+  details?: unknown;
 }
 
 function extractError(body: unknown): ErrorBody {
@@ -76,7 +100,7 @@ function extractError(body: unknown): ErrorBody {
 
 export async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const { body, query, auth = true } = options;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = options.token ?? (auth ? getToken() : null);
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -120,4 +144,9 @@ export async function request<T>(method: string, path: string, options: RequestO
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   return 'Đã có lỗi không mong muốn. Vui lòng thử lại.';
+}
+
+/** Lỗi "không tìm thấy": 404, hoặc 400 do mã trên đường dẫn không đúng định dạng UUID. */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || (error.status === 400 && error.code === 'VALIDATION_ERROR'));
 }
