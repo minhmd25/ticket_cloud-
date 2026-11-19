@@ -3,6 +3,9 @@ import { createPool } from '../db';
 import { EventService } from '../events/service';
 import { eventCreateSchema } from '../events/schemas';
 import { OrderService } from '../orders/service';
+import { QueueService } from '../queue/service';
+import { SeatMapService } from '../seating/service';
+import { buildTheaterLayout } from '../seating/theater';
 import { migrate } from './migrate';
 
 /**
@@ -110,6 +113,41 @@ async function main() {
     const o = await orders.create({ userId: 'alice', role: 'customer' }, { ticketTypeId: football.ticketTypes[0].id, quantity: 4 });
     await orders.cancel({ userId: 'alice', role: 'customer' }, o.order.id, 'Bận việc đột xuất');
     console.log('[seed] tạo 3 đơn mẫu (1 đơn đã hủy)');
+
+    // nhà hát có sơ đồ ghế cong + hàng chờ ảo
+    const theater = await events.create(
+      eventCreateSchema.parse({
+        title: 'Nhạc kịch: Những người khốn khổ (có sơ đồ ghế)',
+        description: 'Chọn ghế trên sơ đồ nhà hát. Mở bán qua hàng chờ ảo: tới giờ mở bán, người vào trước được xếp ngẫu nhiên.',
+        category: 'theater',
+        venue: 'Nhà hát Hòa Bình',
+        startTime: at(21, 20),
+        endTime: at(21, 23),
+        status: 'PUBLISHED',
+        ticketTypes: [
+          { name: 'Hạng A', price: 1500000, seating: 'ASSIGNED' },
+          { name: 'Hạng B', price: 800000, seating: 'ASSIGNED' },
+          { name: 'Hạng C', price: 400000, seating: 'ASSIGNED' },
+        ],
+      }),
+      'seed-admin',
+    );
+    const tier = (name: string) => theater.ticketTypes.find((t) => t.name === name)!.id;
+    const seatMaps = new SeatMapService(db);
+    const map = await seatMaps.save(
+      theater.id,
+      { version: 0, ...buildTheaterLayout({ front: tier('Hạng A'), middle: tier('Hạng B'), back: tier('Hạng C') }) },
+      'seed-admin',
+    );
+    const pick = (...labels: string[]) => labels.map((l) => map.seats.find((s) => s.label === l)!.id);
+    await orders.create({ userId: 'alice', role: 'customer' }, { ticketTypeId: tier('Hạng A'), quantity: 2, seatIds: pick('A3', 'A4') });
+    await new QueueService(db, config.queue).putSettings(
+      theater.id,
+      { enabled: true, saleStartAt: new Date(Date.now() + 5 * 60_000), maxActive: 2, accessMinutes: 10 },
+      'seed-admin',
+    );
+    created.push(await events.getById(theater.id, false));
+    console.log(`[seed] nhà hát: ${map.seats.length} ghế, alice đã đặt A3 + A4; hàng chờ mở bán sau 5 phút, 2 người mua cùng lúc`);
 
     if (config.auth.mode === 'mock') {
       console.log('\nTài khoản mock (AUTH_MODE=mock) - dùng header Authorization:');

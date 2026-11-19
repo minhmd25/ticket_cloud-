@@ -68,6 +68,13 @@ export const config = {
     leaseMs: int('OUTBOX_LEASE_MS', Math.max(60_000, outboxBatchSize * azureTimeoutMs + 30_000)),
   },
 
+  queue: {
+    /** nhịp worker hàng chờ: xếp ngẫu nhiên lúc mở bán, cho người vào, xử lý hết hạn */
+    tickMs: int('QUEUE_TICK_MS', 2000),
+    /** người đang chờ không hỏi lại trạng thái quá chừng này giây thì bị coi là đã bỏ đi */
+    staleSeconds: int('QUEUE_STALE_SECONDS', 120),
+  },
+
   stats: {
     mode: str('STATS_MODE', 'mock') as StatsMode,
     /** vd https://func-ticket-stats-sinh.azurewebsites.net/api */

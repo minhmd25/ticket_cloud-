@@ -50,11 +50,14 @@ API thống kê ◀──── Azure Functions ◀──── Azure Storage Qu
 - Đặt tối đa 10 vé mỗi đơn. Backend chống bán vượt số vé, kể cả khi nhiều người tranh vé cuối cùng lúc.
 - Nếu mạng rớt lúc đặt và khách bấm lại, hệ thống không tạo đơn trùng: frontend gửi lại cùng `Idempotency-Key`, backend trả lại đơn cũ.
 - Xem vé của mình và chi tiết từng đơn. Hủy được đơn kèm lý do nếu còn ít nhất 24 giờ trước giờ diễn, màn hình hiện rõ hạn hủy. Khách không xem được đơn của người khác.
+- Chọn ghế trên sơ đồ với các hạng vé bán theo ghế. Một ghế không bao giờ bị bán cho hai người. Nếu có ghế vừa bị người khác đặt, cả đơn bị từ chối và khách chọn lại. *(Backend đã có, giao diện đang làm.)*
+- Sự kiện đông người mua dùng hàng chờ ảo. Người vào trước giờ mở bán được xếp thứ tự ngẫu nhiên lúc mở bán, tới lượt mới được mua trong một khoảng thời gian giới hạn. *(Backend đã có, giao diện đang làm.)*
 
 **Quản trị viên** (`/admin`):
 
 - Tạo, sửa, hủy sự kiện. Sự kiện có trạng thái nháp hoặc mở bán. Hủy sự kiện thì mọi đơn còn hiệu lực bị hủy theo.
 - Khai báo hạng vé. Không giảm được số vé xuống dưới số vé khách đã đặt.
+- Lưu sơ đồ ghế tự do (tọa độ, góc xoay, khu ghế, tới 5000 ghế), khóa/mở ghế, chép sơ đồ từ sự kiện khác. Cấu hình hàng chờ: giờ mở bán, số người mua cùng lúc, số phút mỗi lượt. *(Backend đã có, giao diện đang làm.)*
 - Tra cứu đơn theo sự kiện và trạng thái, kèm tổng số đơn, số vé, số tiền. Hủy được từng đơn.
 - Thống kê vé đặt, vé hủy và doanh thu theo ngày hoặc theo sự kiện, có biểu đồ. Khi Azure không phản hồi, trang vẫn hiện số liệu lưu tạm kèm cảnh báo.
 
@@ -147,8 +150,9 @@ curl http://localhost:3000/api/me -H 'Authorization: Bearer <JWT>'
 | Hội thảo Cloud Native Việt Nam | conference | có hạng vé giá 0đ |
 | Kịch: Hồn Trương Ba, da hàng thịt | theater | diễn sau **12 giờ**, dùng để thử quá hạn hủy |
 | Lễ hội Ẩm thực đường phố | festival | **DRAFT**, khách không thấy |
+| Nhạc kịch: Những người khốn khổ | theater | **sơ đồ 367 ghế** trên 14 hàng cong, 3 hạng vé theo ghế. **Hàng chờ** mở bán sau 5 phút kể từ lúc seed, 2 người mua cùng lúc |
 
-Kèm 3 đơn mẫu (alice 2 đơn, bob 1 đơn), trong đó 1 đơn đã hủy.
+Kèm 4 đơn mẫu (alice 3 đơn, bob 1 đơn), trong đó 1 đơn đã hủy. Một đơn của alice là 2 ghế A3, A4 ở nhà hát.
 
 ### 3.4. Trang test API thủ công: <http://localhost:3000/dev>
 
@@ -181,7 +185,7 @@ Script chỉ in token ra màn hình. Không dán token vào log, tài liệu hay
 
 | Lệnh | Thư mục | Kiểm tra gì |
 |---|---|---|
-| `npm test` | `cloud-backend` | 74 test tích hợp chạy trên PostgreSQL thật (cần `docker compose up -d db`) |
+| `npm test` | `cloud-backend` | 103 test tích hợp chạy trên PostgreSQL thật (cần `docker compose up -d db`) |
 | `npm test` | `frontend` | 50 test cho lớp gọi API, giao diện khách hàng và giao diện quản trị |
 | `npm run e2e` | `frontend` | 5 kịch bản Playwright trên Chrome, dùng backend giả |
 | `npm run e2e:api` | `frontend` | Cùng 5 kịch bản, dùng backend thật ở `localhost:3000` |
@@ -231,6 +235,8 @@ Xem đầy đủ trong [`cloud-backend/.env.example`](cloud-backend/.env.example
 | `OUTBOX_BATCH_SIZE` | `20` | Số thông điệp worker nhận mỗi lượt |
 | `OUTBOX_LEASE_MS` | lô × `AZURE_TIMEOUT_MS` + 30s, tối thiểu 60s | Thời gian một lượt worker giữ lô đã nhận. Thường không cần đặt |
 | `OUTBOX_MAX_ATTEMPTS` | `10` | Quá số lần thử thì chuyển sang FAILED, chờ admin gửi lại. Mức 10 ≈ 36 phút Azure lỗi liên tục, mức 20 ≈ 3 giờ |
+| `QUEUE_TICK_MS` | `2000` | Chu kỳ worker hàng chờ: xếp ngẫu nhiên lúc mở bán, cho người vào, xử lý hết hạn. `0` để tắt worker |
+| `QUEUE_STALE_SECONDS` | `120` | Người đang chờ không hỏi lại trạng thái quá chừng này giây thì bị coi là đã rời hàng |
 | `STATS_TIMEOUT_MS` | `60000` | Thời gian chờ API thống kê (Azure Function có thể khởi động chậm). Lỗi tạm thời được thử lại 1 lần |
 | `STATS_MODE` | `mock` | `mock` (giả lập API `/stats` của Azure từ database) \| `http` (đọc từ `AZURE_STATS_URL`) |
 | `AZURE_STATS_KEY` | | **Bí mật.** `x-functions-key` của API thống kê, chỉ backend giữ |
@@ -356,7 +362,7 @@ gcloud run jobs execute ticketing-seed-accounts --wait
 
 Sau khi job xong, thử `POST /api/auth/login` và `GET /api/me` cho mỗi vai trò trên URL Cloud Run. Xem thêm [cấu hình secret cho Cloud Run Jobs](https://cloud.google.com/run/docs/configuring/jobs/secrets).
 
-Job seed sự kiện tạo 5 sự kiện và 3 đơn mẫu (1 đơn đã hủy). Khi service chạy ở chế độ `azure-queue`, worker gửi các đơn này sang Azure, nên số vé ở Azure khớp với doanh thu trong database.
+Job seed sự kiện tạo 6 sự kiện và 4 đơn mẫu (1 đơn đã hủy). Khi service chạy ở chế độ `azure-queue`, worker gửi các đơn này sang Azure, nên số vé ở Azure khớp với doanh thu trong database.
 
 ```bash
 gcloud run jobs create ticketing-seed \
@@ -369,7 +375,7 @@ gcloud run jobs execute ticketing-seed --wait
 
 - Seed **chỉ chạy khi database chưa có sự kiện nào**, nên chạy lại cũng không sao.
 - Muốn làm lại từ đầu thì thêm `--args dist/scripts/seed.js,--reset`. ⚠ Lệnh này **xóa toàn bộ** sự kiện, đơn và outbox. Nếu đã gửi dữ liệu sang Azure trước đó, phải nhờ bên Azure xóa phía họ trước, nếu không số liệu sẽ lệch.
-- Sau khi seed khoảng 1–2 phút, kiểm tra `GET /api/admin/outbox/stats` bằng JWT của `admin1` (đăng nhập, hoặc tạo token như mục 3.5). Kết quả dự kiến trên database demo mới là `SENT: 4`, `PENDING: 0`, `FAILED: 0`.
+- Sau khi seed khoảng 1–2 phút, kiểm tra `GET /api/admin/outbox/stats` bằng JWT của `admin1` (đăng nhập, hoặc tạo token như mục 3.5). Kết quả dự kiến trên database demo mới là `SENT: 5`, `PENDING: 0`, `FAILED: 0`.
 
 ### 7.4. Build và deploy frontend
 
@@ -430,6 +436,7 @@ cloud-backend/
   migrations/001_init.sql      schema: events, ticket_types, orders, outbox_events
   migrations/002, 003          outbox_events.sent_via (kênh đã gửi), outbox_events.claim_token (mã nhận việc của worker)
   migrations/004_accounts.sql  schema tài khoản
+  migrations/005, 006          sơ đồ ghế, ghế của đơn (seat_maps, seats, order_seats), hàng chờ ảo (event_queue_settings, queue_entries)
   src/
     app.ts, server.ts          dựng Express app, khởi động server và worker
     config.ts, db.ts           cấu hình, pool Postgres, withTransaction()
@@ -438,11 +445,13 @@ cloud-backend/
     events/                    sự kiện và hạng vé: validate, service (hủy sự kiện thì hủy mọi đơn)
     orders/                    đặt, hủy, tra đơn (giao dịch, chống bán vượt)
     outbox/                    thông điệp nội bộ, mẫu và validator Azure, gửi qua Storage Queue, worker gửi lại
+    seating/                   sơ đồ ghế: validate bố cục (trong khung, không chồng nhau), lưu theo version, khóa ghế, chép sơ đồ, sinh nhà hát mẫu
+    queue/                     hàng chờ ảo: vào/rời hàng, xếp ngẫu nhiên lúc mở bán, worker cho người vào
     stats/                     đọc /stats và /history của Azure, ghép doanh thu từ DB (timeout, retry, cache, stale)
     lib/log.ts                 log JSON một dòng cho Cloud Logging
     routes.ts                  khai báo toàn bộ route
     scripts/                   migrate, seed, seed-accounts, make-token, azure-smoke, azure-sent-report
-  tests/                       74 test tích hợp chạy trên Postgres thật
+  tests/                       103 test tích hợp chạy trên Postgres thật
   dev-console/                 trang test API thủ công /dev
 
 frontend/
@@ -466,6 +475,7 @@ Mọi lời gọi API của frontend nằm trong [`frontend/src/api/index.ts`](f
 ## 9. Tài liệu
 
 - [API của backend](cloud-backend/docs/API.md): danh sách API, request/response, mã lỗi
+- [Sơ đồ ghế và hàng chờ ảo](cloud-backend/docs/GHE-VA-HANG-CHO.md): quyết định thiết kế, cách chống bán trùng ghế, hướng dẫn làm giao diện
 - [Hợp đồng thông điệp với Azure](cloud-backend/docs/azure-message-contract.md): mẫu thông điệp và API thống kê thống nhất với bên Azure
 - [Kết nối frontend với backend](frontend/docs/KET-NOI-BACKEND.md): màn hình nào gọi API nào, cách xử lý từng mã lỗi
 - Báo cáo:

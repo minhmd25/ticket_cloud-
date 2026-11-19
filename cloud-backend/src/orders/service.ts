@@ -5,7 +5,15 @@ import { withTransaction, type Queryable } from '../db';
 import { AppError, Errors } from '../errors';
 import { pageMeta } from '../lib/validation';
 import { enqueueOrderEvent, type OrderSnapshot } from '../outbox/message';
+import { checkQueueAdmission, completeQueueEntry } from '../queue/service';
+import { checkSeatsForBooking, seatTakenError } from '../seating/service';
 import type { AdminOrdersQuery, CreateOrderInput, MyOrdersQuery } from './schemas';
+
+export interface OrderSeatDto {
+  /** null nếu ghế đã bị xóa khỏi sơ đồ sau khi đơn bị hủy */
+  id: string | null;
+  label: string;
+}
 
 export interface OrderDto {
   id: string;
@@ -17,6 +25,8 @@ export interface OrderDto {
   currency: 'VND';
   event: { id: string; title: string; category: string; venue: string; startTime: string; status: string };
   ticketType: { id: string; name: string };
+  /** ghế của đơn (hạng vé ASSIGNED); [] với vé thường */
+  seats: OrderSeatDto[];
   createdAt: string;
   cancelledAt: string | null;
   cancelledBy: string | null;
@@ -48,17 +58,26 @@ export class OrderService {
   // ------------------------------------------------------------------
   /**
    * Toàn bộ trong MỘT giao dịch:
-   *   1. đọc hạng vé + sự kiện (khóa chia sẻ sự kiện để không bị hủy/sửa giữa chừng)
-   *   2. trừ vé bằng UPDATE có điều kiện `available_quantity >= q`  (nguyên tử)
-   *   3. tạo đơn với giá lấy từ DB
-   *   4. ghi outbox ORDER_CREATED
-   * Bất kỳ bước nào lỗi => ROLLBACK, lượng vé không đổi, không có đơn, không có sự kiện.
+   *   1. đọc hạng vé + sự kiện (khóa chia sẻ sự kiện để không bị hủy/sửa giữa chừng,
+   *      và để sơ đồ ghế không bị lưu đè trong lúc đặt)
+   *   2. sự kiện bật hàng chờ: người đặt phải đang ADMITTED và còn hạn
+   *   3. hạng vé theo ghế: kiểm tra ghế thuộc đúng hạng, không bị khóa, chưa ai đặt
+   *   4. trừ vé bằng UPDATE có điều kiện `available_quantity >= q`  (nguyên tử)
+   *   5. tạo đơn với giá lấy từ DB
+   *   6. giữ ghế: INSERT ... ON CONFLICT DO NOTHING theo thứ tự id; thiếu ghế nào => SEAT_TAKEN, hoàn tác cả đơn
+   *   7. ghi outbox ORDER_CREATED (mẫu thông điệp Azure không đổi: một hạng vé + quantity = số ghế)
+   *   8. đánh dấu lượt xếp hàng COMPLETED
+   * Bất kỳ bước nào lỗi => ROLLBACK, lượng vé không đổi, không có đơn, không giữ ghế nào.
    *
-   * Đồng thời: câu UPDATE ở bước 2 khóa dòng hạng vé; request thứ hai phải chờ, rồi
+   * Đồng thời: câu UPDATE ở bước 4 khóa dòng hạng vé; request thứ hai phải chờ, rồi
    * Postgres đánh giá lại điều kiện trên giá trị MỚI NHẤT => không bao giờ bán vượt
    * (thêm CHECK available_quantity >= 0 ở DB làm lớp bảo vệ cuối).
+   * Với ghế, unique index `order_seats_active_uq` là lớp bảo vệ cuối: một ghế chỉ thuộc một đơn còn hiệu lực.
    */
-  async create(user: AuthUser, input: CreateOrderInput, idempotencyKey?: string): Promise<{ order: OrderDto; replayed: boolean }> {
+  async create(user: AuthUser, raw: CreateOrderInput, idempotencyKey?: string): Promise<{ order: OrderDto; replayed: boolean }> {
+    // chuẩn hóa cả khi được gọi trực tiếp (seed): ghế sắp theo id => mọi giao dịch khóa ghế cùng thứ tự
+    const seatIds = raw.seatIds ? [...new Set(raw.seatIds)].sort() : undefined;
+    const input: CreateOrderInput = { ticketTypeId: raw.ticketTypeId, quantity: seatIds ? seatIds.length : raw.quantity, seatIds };
     if (input.quantity > this.rules.maxTicketsPerOrder) {
       throw Errors.unprocessable(
         'QUANTITY_EXCEEDS_LIMIT',
@@ -75,7 +94,7 @@ export class OrderService {
     try {
       const order = await withTransaction(this.db, async (tx) => {
         const info = await tx.query(
-          `SELECT t.id, t.event_id, e.status AS event_status, e.start_time
+          `SELECT t.id, t.event_id, t.seating, e.status AS event_status, e.start_time
              FROM ticket_types t JOIN events e ON e.id = t.event_id
             WHERE t.id = $1
             FOR SHARE OF e`,
@@ -87,7 +106,19 @@ export class OrderService {
         if (tt.event_status !== 'PUBLISHED') throw Errors.conflict('EVENT_NOT_OPEN', 'Sự kiện chưa mở bán');
         if (new Date(tt.start_time) <= this.now()) throw Errors.conflict('EVENT_ALREADY_STARTED', 'Sự kiện đã diễn ra, không thể đặt vé');
 
-        // (2) trừ vé nguyên tử
+        // (2) hàng chờ ảo
+        const queueEntryId = await checkQueueAdmission(tx, tt.event_id, user.userId);
+
+        // (3) ghế
+        if (tt.seating === 'ASSIGNED' && !input.seatIds) {
+          throw Errors.unprocessable('SEATS_REQUIRED', 'Hạng vé này bán theo ghế, hãy chọn ghế (seatIds)');
+        }
+        if (tt.seating === 'GENERAL' && input.seatIds) {
+          throw Errors.unprocessable('SEATS_NOT_ALLOWED', 'Hạng vé này không bán theo ghế, chỉ gửi quantity');
+        }
+        const seats = input.seatIds ? await checkSeatsForBooking(tx, tt.event_id, input.ticketTypeId, input.seatIds) : null;
+
+        // (4) trừ vé nguyên tử
         const dec = await tx.query(
           `UPDATE ticket_types
               SET available_quantity = available_quantity - $2, updated_at = now()
@@ -96,6 +127,8 @@ export class OrderService {
           [input.ticketTypeId, input.quantity],
         );
         if (dec.rowCount === 0) {
+          // với ghế: chỉ xảy ra khi có ghế vừa bị người khác lấy trong lúc chờ khóa
+          if (seats) throw seatTakenError(await this.takenSeats(tx, seats));
           const left = await tx.query('SELECT available_quantity FROM ticket_types WHERE id = $1', [input.ticketTypeId]);
           const available: number = left.rows[0].available_quantity;
           if (available === 0) throw Errors.conflict('SOLD_OUT', 'Hạng vé này đã hết', { requested: input.quantity, available });
@@ -107,28 +140,60 @@ export class OrderService {
         }
         const price: string = dec.rows[0].price; // giá lấy từ DB, không tin client
 
-        // (3) tạo đơn
+        // (5) tạo đơn
         const ins = await tx.query(
           `INSERT INTO orders (user_id, event_id, ticket_type_id, quantity, unit_price, total_amount, status, idempotency_key)
            VALUES ($1, $2, $3, $4::int, $5::numeric, $5::numeric * $4::int, 'CONFIRMED', $6)
            RETURNING id`,
           [user.userId, tt.event_id, input.ticketTypeId, input.quantity, price, idempotencyKey ?? null],
         );
-        const snap = await this.loadSnapshot(tx, ins.rows[0].id);
+        const orderId: string = ins.rows[0].id;
 
-        // (4) outbox - cùng giao dịch
+        // (6) giữ ghế: đủ hết hoặc không ghế nào
+        if (seats) {
+          const got = await tx.query(
+            `INSERT INTO order_seats (order_id, seat_id, seat_label)
+             SELECT $1, s.id, s.label FROM seats s WHERE s.id = ANY($2::uuid[]) ORDER BY s.id
+             ON CONFLICT (seat_id) WHERE released_at IS NULL DO NOTHING
+             RETURNING seat_id`,
+            [orderId, input.seatIds],
+          );
+          if (got.rowCount !== seats.length) {
+            const mine = new Set(got.rows.map((r) => r.seat_id));
+            throw seatTakenError(seats.filter((s) => !mine.has(s.id)));
+          }
+        }
+
+        // (7) outbox - cùng giao dịch
+        const snap = await this.loadSnapshot(tx, orderId);
         await enqueueOrderEvent(tx, 'ORDER_CREATED', snap);
-        return this.toDto(snap);
+
+        // (8) dùng xong lượt vào của hàng chờ
+        if (queueEntryId) await completeQueueEntry(tx, queueEntryId);
+        return (await this.toDtos(tx, [snap]))[0];
       });
       return { order, replayed: false };
     } catch (err: any) {
-      // Hai request cùng Idempotency-Key chạy song song: request thua bị unique violation -> trả đơn đã tạo
-      if (idempotencyKey && err?.code === '23505' && err?.constraint === 'orders_idempotency_uq') {
+      // Gửi lại cùng Idempotency-Key trong lúc request đầu đang chạy: request sau có thể thua ở unique index,
+      // hoặc nhận 409 (hết vé, ghế vừa bị lấy, lượt hàng chờ vừa dùng) vì chính request đầu đã thành công.
+      // Khi đó trả lại đơn của request đầu thay vì báo lỗi.
+      const raced = (err?.code === '23505' && err?.constraint === 'orders_idempotency_uq') || (err instanceof AppError && err.status === 409);
+      if (idempotencyKey && raced) {
         const existing = await this.findByIdempotencyKey(user.userId, idempotencyKey, input);
         if (existing) return { order: existing, replayed: true };
       }
       throw err;
     }
+  }
+
+  /** Ghế nào trong danh sách đang thuộc đơn khác */
+  private async takenSeats(tx: Queryable, seats: { id: string; label: string }[]) {
+    const r = await tx.query('SELECT seat_id FROM order_seats WHERE seat_id = ANY($1::uuid[]) AND released_at IS NULL', [
+      seats.map((s) => s.id),
+    ]);
+    const taken = new Set(r.rows.map((x) => x.seat_id));
+    const list = seats.filter((s) => taken.has(s.id));
+    return list.length ? list : seats;
   }
 
   // ------------------------------------------------------------------
@@ -170,15 +235,16 @@ export class OrderService {
       );
       if (upd.rowCount !== 1) throw Errors.conflict('ORDER_ALREADY_CANCELLED', 'Đơn đã được hủy trước đó');
 
-      // hoàn vé trong cùng giao dịch
+      // hoàn vé và trả ghế trong cùng giao dịch
       await tx.query(
         `UPDATE ticket_types SET available_quantity = available_quantity + $2, updated_at = now() WHERE id = $1`,
         [o.ticket_type_id, o.quantity],
       );
+      await tx.query('UPDATE order_seats SET released_at = now() WHERE order_id = $1 AND released_at IS NULL', [orderId]);
 
       const snap = await this.loadSnapshot(tx, orderId);
       await enqueueOrderEvent(tx, 'ORDER_CANCELLED', snap);
-      return this.toDto(snap);
+      return (await this.toDtos(tx, [snap]))[0];
     });
   }
 
@@ -189,7 +255,7 @@ export class OrderService {
     const r = await this.db.query(`${ORDER_SELECT} WHERE o.id = $1`, [orderId]);
     const o = r.rows[0];
     this.assertCanAccess(user, o);
-    return this.toDto(o);
+    return (await this.toDtos(this.db, [o]))[0];
   }
 
   async listMine(user: AuthUser, q: MyOrdersQuery) {
@@ -232,7 +298,7 @@ export class OrderService {
       `${ORDER_SELECT} ${where} ORDER BY o.created_at DESC, o.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, q.limit, (q.page - 1) * q.limit],
     );
-    return { data: rows.rows.map((r) => this.toDto(r)), pagination: pageMeta(q, count.rows[0].n) };
+    return { data: await this.toDtos(this.db, rows.rows), pagination: pageMeta(q, count.rows[0].n) };
   }
 
   /** Chủ đơn hoặc admin. Người khác nhận 404 (không tiết lộ đơn có tồn tại hay không). */
@@ -246,10 +312,28 @@ export class OrderService {
     const r = await this.db.query(`${ORDER_SELECT} WHERE o.user_id = $1 AND o.idempotency_key = $2`, [userId, key]);
     const o = r.rows[0];
     if (!o) return null;
-    if (o.ticket_type_id !== input.ticketTypeId || o.quantity !== input.quantity) {
+    const [dto] = await this.toDtos(this.db, [o]);
+    const sameSeats = dto.seats.map((s) => s.id ?? '').sort().join(',') === (input.seatIds ?? []).join(',');
+    if (o.ticket_type_id !== input.ticketTypeId || o.quantity !== input.quantity || !sameSeats) {
       throw new AppError(422, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key đã dùng cho một yêu cầu đặt vé khác');
     }
-    return this.toDto(o);
+    return dto;
+  }
+
+  /** Chuyển dòng đơn sang DTO, kèm ghế (một query cho cả trang) */
+  private async toDtos(db: Queryable, rows: any[]): Promise<OrderDto[]> {
+    if (rows.length === 0) return [];
+    const r = await db.query(
+      'SELECT order_id, seat_id, seat_label FROM order_seats WHERE order_id = ANY($1::uuid[]) ORDER BY seat_label, id',
+      [rows.map((o) => o.id)],
+    );
+    const seatsOf = new Map<string, OrderSeatDto[]>();
+    for (const s of r.rows) {
+      const list = seatsOf.get(s.order_id) ?? [];
+      list.push({ id: s.seat_id, label: s.seat_label });
+      seatsOf.set(s.order_id, list);
+    }
+    return rows.map((o) => this.toDto(o, seatsOf.get(o.id) ?? []));
   }
 
   private async loadSnapshot(db: Queryable, orderId: string): Promise<OrderSnapshot & Record<string, any>> {
@@ -261,7 +345,7 @@ export class OrderService {
     return new Date(new Date(startTime).getTime() - this.rules.cancellationDeadlineHours * 3600_000);
   }
 
-  private toDto(o: any): OrderDto {
+  private toDto(o: any, seats: OrderSeatDto[]): OrderDto {
     const deadline = this.deadlineOf(o.event_start_time);
     return {
       id: o.id,
@@ -280,6 +364,7 @@ export class OrderService {
         status: o.event_status,
       },
       ticketType: { id: o.ticket_type_id, name: o.ticket_type_name },
+      seats,
       createdAt: new Date(o.created_at).toISOString(),
       cancelledAt: o.cancelled_at ? new Date(o.cancelled_at).toISOString() : null,
       cancelledBy: o.cancelled_by ?? null,
