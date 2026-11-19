@@ -38,6 +38,12 @@ Thêm ngoài bảng phân công, vì backend đã hỗ trợ:
 - **Hủy cả sự kiện** (mục cuối trang sửa sự kiện): nhập lý do, xác nhận. Backend hủy mọi đơn còn hiệu lực, hoàn vé và báo sang Azure trong một giao dịch; giao diện báo số đơn đã hủy và khóa form của sự kiện đó.
 - **Quản trị viên hủy một đơn** ở trang chi tiết đơn, không bị giới hạn hạn hủy của khách, có ghi lý do.
 
+Sau khi backend có sơ đồ ghế và hàng chờ ảo, trang sửa sự kiện có thêm thanh mục (Thông tin · Hạng vé · Sơ đồ ghế · Hàng chờ · Hủy sự kiện) và hai mục mới. Phần này do Ma Đức Minh làm (xem báo cáo của Minh), nằm trong khu quản trị:
+
+- **Hạng vé** có thêm cách bán: theo số lượng, hoặc chọn ghế trên sơ đồ (số vé tự tính theo số ghế không bị khóa).
+- **Sơ đồ ghế**: tạo nhanh từ mẫu (nhà hát hàng cong hoặc các hàng thẳng, chọn số hàng cho từng hạng), nhập hoặc tải về file JSON, chép từ sự kiện khác (ghép hạng vé theo tên), xem trước rồi mới lưu. Bấm chọn ghế trên sơ đồ để khóa hoặc mở. Hiện rõ từng lỗi của backend: ghế chồng nhau, ngoài khung, ghế đã bán không xóa/đổi hạng được, sơ đồ vừa bị người khác sửa.
+- **Hàng chờ ảo**: bật/tắt, giờ mở bán, số người mua cùng lúc, số phút mỗi lượt; số người đang chờ, đang mua, đã mua xong, hết lượt, rời hàng; nút "Chạy một nhịp" để demo.
+
 ## 4. Kiểm thử
 
 ### 4.1 Kiểm thử trên trình duyệt thật với backend thật (`npm run e2e:api`)
@@ -49,18 +55,20 @@ Playwright trên Google Chrome, frontend gọi backend chung chạy trên máy (
 | 1 | `admin1` tạo sự kiện (thử bỏ trống trước để thấy lỗi), thêm hạng VIP 5 vé và Thường 100 vé | Đạt |
 | 2–3 | Khách `alice` đặt 2 vé VIP, 1 vé Thường rồi hủy vé Thường (xem báo cáo của Ma Đức Minh) | Đạt |
 | 4 | `admin1` giảm số vé VIP xuống 1 → backend từ chối vì đang giữ 2 vé, giao diện hiện lỗi và "Tối thiểu 2 vé" → lọc đơn theo sự kiện thấy đúng 2 đơn, dòng tổng hợp "Đã xác nhận: 1 đơn, 2 vé" → mở chi tiết đơn thấy người đặt `alice` → thống kê theo sự kiện ra **3 vé đặt, 1 vé hủy, doanh thu thực 3.000.000 đ**, khớp với các thao tác ở kịch bản 2–3 | Đạt |
-| 5 | Trang thống kê ở chế độ tối | Đạt |
+| 5 | `admin1` thêm hai hạng chọn ghế, tạo sơ đồ lưới 5 × 12 ghế, bật hàng chờ mỗi lượt 1 người; khóa ghế khách đang chọn; tắt hàng chờ; lọc đơn của sự kiện thấy 2 đơn kèm số ghế | Đạt |
+| 6 | Trang thống kê ở chế độ tối | Đạt |
 
 Cùng bộ kịch bản cũng đạt khi chạy với backend giả (`npm run e2e`).
 
 ### 4.2 Kiểm thử tự động (`npm test`)
 
-Toàn bộ **50 test của dự án đều đạt** (gồm cả phần khách hàng).
+Toàn bộ **61 test của dự án đều đạt** (gồm cả phần khách hàng).
 
 | Nhóm | Số test | Nội dung chính |
 |---|---|---|
 | Lớp API — quản trị | 8 | khách gọi API quản trị bị chặn (403); thấy sự kiện nháp, tạo sự kiện, thêm/sửa hạng vé, trùng tên; lỗi theo từng trường; không cho giảm vé dưới số đang giữ; hủy cả sự kiện; lọc đơn kèm tổng hợp; admin hủy đơn quá hạn; thống kê cộng đúng vé và doanh thu |
 | Giao diện quản trị | 10 | admin đăng nhập, lọc theo trạng thái; tạo sự kiện (bỏ trống báo 5 lỗi, giờ kết thúc sai) rồi thêm hạng vé (giá sai, trùng tên); lỗi backend khi giảm vé; sửa sự kiện chỉ gửi trường đã đổi; hủy cả sự kiện; lọc đơn và mở chi tiết; admin hủy đơn kèm lý do; **luồng đầy đủ tạo sự kiện → hạng vé → khách đặt → quản trị thấy đơn và thống kê**; tổng trên ô số liệu khớp với bảng; mất kết nối khi tải lại vẫn giữ số liệu cũ |
+| Giao diện sơ đồ ghế và hàng chờ | 3 | thêm hạng chọn ghế, tạo sơ đồ lưới rồi lưu, khóa ghế và số vé tự giảm; file JSON có ghế chồng nhau báo đúng ghế; cấu hình hàng chờ, kiểm tra ô nhập, chạy một nhịp |
 | Hàm chia mốc trục biểu đồ | 1 | mốc trục luôn là số tròn |
 
 ### 4.3 Ảnh chụp màn hình (chạy với backend thật)
@@ -72,6 +80,7 @@ Toàn bộ **50 test của dự án đều đạt** (gồm cả phần khách h�
 | ![Tra cứu đơn](screenshots/24-tra-cuu-don.png) Tra cứu đơn theo sự kiện | ![Chi tiết đơn](screenshots/25-chi-tiet-don.png) Chi tiết đơn |
 | ![Thống kê theo ngày](screenshots/26-thong-ke-theo-ngay.png) Thống kê theo ngày | ![Tooltip](screenshots/27-thong-ke-tooltip.png) Rê chuột xem số liệu |
 | ![Theo sự kiện](screenshots/28-thong-ke-theo-su-kien.png) Thống kê theo sự kiện | ![Chế độ tối](screenshots/29-thong-ke-che-do-toi.png) Chế độ tối |
+| ![Sơ đồ ghế](screenshots/30-quan-tri-so-do-ghe.png) Sơ đồ ghế, ghế đã bán và ghế khóa | |
 
 Trên máy, DB mới được tạo nên mọi số liệu thống kê nằm ở ngày chạy thử.
 

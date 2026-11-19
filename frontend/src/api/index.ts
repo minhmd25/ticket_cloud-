@@ -16,6 +16,13 @@ import type {
   MyOrdersQuery,
   Order,
   Page,
+  QueueEntry,
+  QueueSettings,
+  QueueSettingsInput,
+  QueueTickResult,
+  SeatMap,
+  SeatMapInput,
+  SeatStatus,
   StatsQuery,
   StatsResponse,
   TicketType,
@@ -68,6 +75,14 @@ export const api = {
     }),
   listCategories: async () => (await request<{ data: CategoryCount[] }>('GET', '/api/events/categories')).data,
   getEvent: (id: string) => request<EventDetail>('GET', `/api/events/${enc(id)}`),
+  /** Sơ đồ ghế. Có ETag nên trình duyệt tự hỏi lại bằng If-None-Match và dùng bản đệm khi chưa đổi. */
+  getSeatMap: (eventId: string) => request<SeatMap>('GET', `/api/events/${enc(eventId)}/seat-map`),
+  getSeatStatus: (eventId: string) => request<SeatStatus>('GET', `/api/events/${enc(eventId)}/seats/status`),
+
+  // ---- Hàng chờ ảo ----
+  joinQueue: (eventId: string) => request<QueueEntry>('POST', `/api/events/${enc(eventId)}/queue`),
+  getMyQueue: (eventId: string) => request<QueueEntry>('GET', `/api/events/${enc(eventId)}/queue/me`),
+  leaveQueue: (eventId: string) => request<QueueEntry>('DELETE', `/api/events/${enc(eventId)}/queue/me`),
 
   // ---- Đơn của khách đang đăng nhập ----
   /** `idempotencyKey`: gửi lại cùng key khi thử lại sau lỗi mạng để không tạo đơn trùng. */
@@ -100,6 +115,23 @@ export const api = {
       request<TicketType>('POST', `/api/admin/events/${enc(eventId)}/ticket-types`, { body: input }),
     updateTicketType: (id: string, patch: Partial<TicketTypeInput>) =>
       request<TicketType>('PATCH', `/api/admin/ticket-types/${enc(id)}`, { body: patch }),
+    getSeatMap: (eventId: string) => request<SeatMap>('GET', `/api/admin/events/${enc(eventId)}/seat-map`),
+    getSeatStatus: (eventId: string) =>
+      request<SeatStatus>('GET', `/api/admin/events/${enc(eventId)}/seats/status`),
+    saveSeatMap: (eventId: string, input: SeatMapInput) =>
+      request<SeatMap>('PUT', `/api/admin/events/${enc(eventId)}/seat-map`, { body: input }),
+    setSeatsBlocked: (eventId: string, seatIds: string[], blocked: boolean) =>
+      request<{ version: number; changed: number }>('PATCH', `/api/admin/events/${enc(eventId)}/seats`, {
+        body: { seatIds, blocked },
+      }),
+    copySeatMap: (eventId: string, sourceEventId: string, version: number) =>
+      request<SeatMap>('POST', `/api/admin/events/${enc(eventId)}/seat-map/copy-from/${enc(sourceEventId)}`, {
+        body: { version },
+      }),
+    getQueue: (eventId: string) => request<QueueSettings>('GET', `/api/admin/events/${enc(eventId)}/queue`),
+    saveQueue: (eventId: string, input: QueueSettingsInput) =>
+      request<QueueSettings>('PUT', `/api/admin/events/${enc(eventId)}/queue`, { body: input }),
+    tickQueue: (eventId: string) => request<QueueTickResult>('POST', `/api/admin/events/${enc(eventId)}/queue/tick`),
     listOrders: (q: AdminOrdersQuery = {}) =>
       request<AdminOrderPage>('GET', '/api/admin/orders', {
         query: { ...page(q), eventId: q.eventId, status: q.status },

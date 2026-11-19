@@ -194,3 +194,87 @@ describe('trạng thái tải, rỗng và lỗi', () => {
     expect(await screen.findByText(`Trang 2/${Math.ceil(total / 20)} · ${total} mục`)).toBeInTheDocument();
   });
 });
+
+describe('chọn ghế và hàng chờ', () => {
+  const seatButton = (label: string) => screen.getByRole('button', { name: new RegExp(`^Ghế ${label} ·`) });
+
+  it('chọn ghế trên sơ đồ rồi đặt vé', async () => {
+    await loginAs('alice');
+    const { user } = renderApp('/events/ev-109');
+    const form = await screen.findByRole('form', { name: 'Đặt vé' });
+    expect(await within(form).findByRole('group', { name: /Sơ đồ ghế/ })).toBeInTheDocument();
+    // Ghế đã bán không bấm được.
+    expect(within(form).getByRole('img', { name: /^Ghế A7 · .*đã có người đặt/ })).toBeInTheDocument();
+
+    await user.click(seatButton('A1'));
+    await user.click(seatButton('A2'));
+    expect(seatButton('A1')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(form).getByText('Ghế đã chọn (2/10)')).toBeInTheDocument();
+    expect(within(form).getByText(/2\.400\.000/)).toBeInTheDocument();
+
+    // Chọn ghế hạng khác thì chuyển hạng và chỉ giữ ghế vừa bấm.
+    await user.click(seatButton('E1'));
+    expect(within(form).getByRole('radio', { name: /Hạng hai/ })).toBeChecked();
+    expect(within(form).getByText(/Đã chuyển sang Hạng hai/)).toBeInTheDocument();
+    await user.click(seatButton('E2'));
+
+    await user.click(within(form).getByRole('button', { name: 'Đặt vé' }));
+    expect(await within(form).findByText(/Đặt vé thành công/)).toBeInTheDocument();
+    expect(within(form).getByText(/ghế E1, E2/)).toBeInTheDocument();
+    await waitFor(() => expect(within(form).getByRole('img', { name: /^Ghế E1 · .*đã có người đặt/ })).toBeInTheDocument());
+  });
+
+  it('ghế vừa có người khác đặt thì báo lỗi và bỏ ghế đó khỏi lựa chọn', async () => {
+    await loginAs('alice');
+    const { user } = renderApp('/events/ev-109');
+    const form = await screen.findByRole('form', { name: 'Đặt vé' });
+    await within(form).findByRole('group', { name: /Sơ đồ ghế/ });
+    await user.click(seatButton('B1'));
+    await user.click(seatButton('B2'));
+
+    // Trong lúc alice đang chọn, bob đặt mất ghế B2.
+    const db = loadDb();
+    const b2 = db.seatMaps.find((m) => m.eventId === 'ev-109')!.seats.find((x) => x.label === 'B2')!;
+    db.orders.push({ ...db.orders.find((o) => o.eventId === 'ev-109')!, id: 'don-cua-bob', userId: 'bob', seatIds: [b2.id], quantity: 1, status: 'CONFIRMED' });
+    saveDb(db);
+
+    await user.click(within(form).getByRole('button', { name: 'Đặt vé' }));
+    expect(await within(form).findByText(/Ghế B2 vừa có người đặt/)).toBeInTheDocument();
+    expect(within(form).getByText('Ghế đã chọn (1/10)')).toBeInTheDocument();
+    expect(within(form).queryByRole('button', { name: 'Bỏ chọn ghế B2' })).not.toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Bỏ chọn ghế B1' })).toBeInTheDocument();
+  });
+
+  it('sự kiện có hàng chờ: vào hàng, chờ tới giờ mở bán', async () => {
+    await loginAs('alice');
+    const { user } = renderApp('/events/ev-108');
+    expect(await screen.findByText('Sự kiện mở bán qua hàng chờ')).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'Đặt vé' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Vào hàng chờ' }));
+    expect(await screen.findByText('Mở bán sau')).toBeInTheDocument();
+    expect(screen.getByText(/Thứ tự sẽ được xếp ngẫu nhiên/)).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument(); // 6 người giả + alice đang chờ
+    await user.click(screen.getByRole('button', { name: 'Rời hàng' }));
+    expect(await screen.findByText('Bạn đã rời hàng chờ.')).toBeInTheDocument();
+  });
+
+  it('sự kiện có hàng chờ: tới lượt thì hiện form đặt vé kèm thời gian còn lại', async () => {
+    const db = loadDb();
+    const settings = db.queueSettings.find((x) => x.eventId === 'ev-108')!;
+    settings.saleStartAt = new Date(Date.now() - 60_000).toISOString();
+    db.queueEntries = [];
+    saveDb(db);
+    await loginAs('alice');
+    const { user } = renderApp('/events/ev-108');
+    await user.click(await screen.findByRole('button', { name: 'Vào hàng chờ' }));
+    expect(await screen.findByText('Đã tới lượt bạn!')).toBeInTheDocument();
+    const form = await screen.findByRole('form', { name: 'Đặt vé' });
+    await within(form).findByRole('group', { name: /Sơ đồ ghế/ });
+    await user.click(seatButton('A5'));
+    await user.click(within(form).getByRole('button', { name: 'Đặt vé' }));
+    // Đặt xong một đơn thì lượt kết thúc; trang chờ báo kết quả và cho vào hàng lại.
+    expect(await screen.findByText(/Lượt mua của bạn đã kết thúc/)).toBeInTheDocument();
+    expect(screen.getByText(/ghế A5/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vào hàng lại' })).toBeInTheDocument();
+  });
+});

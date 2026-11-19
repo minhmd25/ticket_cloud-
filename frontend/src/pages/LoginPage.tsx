@@ -67,13 +67,31 @@ export function LoginPage() {
 
   return (
     <div className="login">
-      <div className="login__panel card">
+      <section className="login__showcase" aria-label="Giới thiệu">
+        <div className="login__logo">
+          <span className="brand__mark" aria-hidden="true">
+            <Icon name="ticket" className="brand__icon" />
+          </span>
+          Đặt vé sự kiện
+        </div>
+        <p className="login__headline">Concert, thể thao, nhạc kịch: chọn chỗ đẹp, đặt vé trong vài giây.</p>
+        <ul className="login__features">
+          <li>
+            <Icon name="seat" /> Chọn ghế ngay trên sơ đồ nhà hát
+          </li>
+          <li>
+            <Icon name="users" /> Hàng chờ ảo công bằng khi mở bán vé hot
+          </li>
+          <li>
+            <Icon name="check" /> Rớt mạng khi đặt cũng không bị trùng đơn
+          </li>
+        </ul>
+        <p className="login__foot">Nhóm 5 · Điện toán đám mây · GCP + Azure</p>
+      </section>
+      <div className="login__panel">
         <div className="login__brand">
-          <Icon name="ticket" className="brand__icon brand__icon--lg" />
-          <div>
-            <h1>Đăng nhập</h1>
-            <p>Hệ thống đặt vé đa sự kiện · dùng chung cho khách hàng và quản trị viên</p>
-          </div>
+          <h1>Đăng nhập</h1>
+          <p>Dùng chung cho khách hàng và quản trị viên.</p>
         </div>
 
         {sessionExpired && !formError && (

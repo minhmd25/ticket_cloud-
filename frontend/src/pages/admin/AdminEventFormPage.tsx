@@ -5,6 +5,8 @@ import { Alert, EmptyState, ErrorState, EventStatusBadge, Icon, Loading, PageHea
 import { formatNumber } from '../../lib/format';
 import { useAsync } from '../../lib/useAsync';
 import { EventForm } from './EventForm';
+import { QueueSettingsPanel } from './QueueSettingsPanel';
+import { SeatMapManager } from './SeatMapManager';
 import { TicketTypeManager } from './TicketTypeManager';
 
 const back = (
@@ -69,7 +71,15 @@ function EditEvent({ id }: { id: string }) {
         </Alert>
       )}
 
-      <section className="card" aria-labelledby="info-heading">
+      <nav className="section-nav" aria-label="Các phần của sự kiện">
+        <a href="#thong-tin">Thông tin</a>
+        <a href="#hang-ve">Hạng vé</a>
+        <a href="#so-do-ghe">Sơ đồ ghế</a>
+        <a href="#hang-cho">Hàng chờ</a>
+        {event.status !== 'CANCELLED' && <a href="#huy-su-kien">Hủy sự kiện</a>}
+      </nav>
+
+      <section className="card" aria-labelledby="info-heading" id="thong-tin">
         <h2 id="info-heading" className="section-title section-title--flush">
           Thông tin sự kiện
         </h2>
@@ -85,12 +95,13 @@ function EditEvent({ id }: { id: string }) {
         />
       </section>
 
-      <section className="card" aria-labelledby="tickets-heading">
+      <section className="card" aria-labelledby="tickets-heading" id="hang-ve">
         <h2 id="tickets-heading" className="section-title section-title--flush">
           Hạng vé
         </h2>
         <p className="muted small">
-          Số lượng bán là tổng số vé mở bán của hạng. Không thể giảm xuống dưới số vé khách đã đặt.
+          Hạng bán theo số lượng: số lượng bán là tổng số vé mở bán, không giảm được xuống dưới số vé khách đã đặt. Hạng chọn ghế:
+          số vé tự tính theo số ghế không bị khóa trên sơ đồ.
         </p>
         <TicketTypeManager
           eventId={event.id}
@@ -98,6 +109,24 @@ function EditEvent({ id }: { id: string }) {
           readOnly={event.status === 'CANCELLED'}
           onChanged={reload}
         />
+      </section>
+
+      <section className="card" aria-labelledby="seatmap-heading" id="so-do-ghe">
+        <h2 id="seatmap-heading" className="section-title section-title--flush">
+          Sơ đồ ghế
+        </h2>
+        <SeatMapManager event={event} readOnly={event.status === 'CANCELLED'} onChanged={reload} />
+      </section>
+
+      <section className="card" aria-labelledby="queue-heading" id="hang-cho">
+        <h2 id="queue-heading" className="section-title section-title--flush">
+          Hàng chờ ảo
+        </h2>
+        <p className="muted small">
+          Bật khi sự kiện đông người mua: trước giờ mở bán không ai đặt được; tới giờ, người đã vào hàng được xếp ngẫu nhiên và lần
+          lượt được vào mua theo số người mua cùng lúc.
+        </p>
+        <QueueSettingsPanel event={event} readOnly={event.status === 'CANCELLED'} onChanged={reload} />
       </section>
 
       {event.status !== 'CANCELLED' && (
@@ -135,7 +164,7 @@ function CancelEventSection({ event, onCancelled }: { event: EventDetail; onCanc
   };
 
   return (
-    <section className="card danger-zone" aria-labelledby="cancel-heading">
+    <section className="card danger-zone" aria-labelledby="cancel-heading" id="huy-su-kien">
       <h2 id="cancel-heading" className="section-title section-title--flush">
         Hủy sự kiện
       </h2>

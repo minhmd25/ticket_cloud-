@@ -1,7 +1,8 @@
 // Dữ liệu cho backend giả. Chỉ dùng khi VITE_USE_MOCK=true, để chạy demo và kiểm thử
 // giao diện khi không có backend thật. Cấu trúc bám theo bảng của cloud-backend.
-import type { EventStatus, OrderStatus, Role } from '../types';
+import type { EventStatus, OrderStatus, QueueStatus, Role, SeatDecoration, SeatSection, Seating } from '../types';
 import { vnDateTime } from '../../lib/dates';
+import { buildGridLayout, buildTheaterLayout, type SeatLayout } from '../../lib/seatLayouts';
 
 export interface DbUser {
   id: string;
@@ -29,6 +30,7 @@ export interface DbTicketType {
   name: string;
   description: string;
   price: number;
+  seating: Seating;
   totalQuantity: number;
   availableQuantity: number;
 }
@@ -46,6 +48,8 @@ export interface DbOrder {
   cancelledBy: string | null;
   cancelReason: string | null;
   idempotencyKey: string | null;
+  /** Ghế của đơn (vé chọn ghế). Đơn đã hủy vẫn giữ danh sách, ghế được trả lại để bán tiếp. */
+  seatIds: string[];
 }
 
 /** Bản ghi đặt/hủy, tương ứng thông điệp gửi sang Azure để thống kê. */
@@ -59,6 +63,54 @@ export interface DbActivity {
   at: string;
 }
 
+export interface DbSeat {
+  id: string;
+  label: string;
+  row: string | null;
+  section: string | null;
+  ticketTypeId: string;
+  x: number;
+  y: number;
+  rotation: number;
+  accessible: boolean;
+  blocked: boolean;
+}
+
+export interface DbSeatMap {
+  eventId: string;
+  version: number;
+  width: number;
+  height: number;
+  seatSize: number;
+  sections: SeatSection[];
+  decorations: SeatDecoration[];
+  seats: DbSeat[];
+  updatedAt: string;
+}
+
+export interface DbQueueSettings {
+  eventId: string;
+  enabled: boolean;
+  saleStartAt: string;
+  maxActive: number;
+  accessMinutes: number;
+  randomizedAt: string | null;
+  lastPosition: number;
+  updatedAt: string;
+}
+
+export interface DbQueueEntry {
+  eventId: string;
+  userId: string;
+  status: QueueStatus;
+  position: number | null;
+  joinedAt: string;
+  lastSeenAt: string;
+  admittedAt: string | null;
+  expiresAt: string | null;
+  finishedAt: string | null;
+}
+
 export interface DbSession {
   token: string;
   userId: string;
@@ -66,25 +118,37 @@ export interface DbSession {
 }
 
 export interface MockDb {
-  version: 2;
+  version: 3;
   users: DbUser[];
   events: DbEvent[];
   ticketTypes: DbTicketType[];
   orders: DbOrder[];
   activities: DbActivity[];
   sessions: DbSession[];
+  seatMaps: DbSeatMap[];
+  queueSettings: DbQueueSettings[];
+  queueEntries: DbQueueEntry[];
 }
 
 /** Quy tắc nghiệp vụ giống cấu hình mặc định của backend. */
 export const RULES = {
   cancellationDeadlineHours: 24,
   maxTicketsPerOrder: 10,
+  /** Người đang chờ không hỏi lại quá số giây này thì mất lượt (QUEUE_STALE_SECONDS). */
+  queueStaleSeconds: 120,
 };
+
+/**
+ * Người xếp hàng giả trong dữ liệu mẫu (không phải tài khoản đăng nhập được), để trang chờ có
+ * người phía trước. Họ luôn "đang mở trang" và mua xong sau vài chục giây kể từ lúc tới lượt.
+ */
+export const DEMO_QUEUE_PREFIX = 'demo-';
+export const DEMO_QUEUE_PURCHASE_SECONDS = 20;
 
 /** Mật khẩu tài khoản mẫu, trùng với `npm run seed:accounts -- --demo` của backend. */
 export const DEMO_PASSWORDS = { customer: 'DemoCustomer2026!', admin: 'DemoAdmin2026!' };
 
-const STORAGE_KEY = 'nhom5.mockdb.v2';
+const STORAGE_KEY = 'nhom5.mockdb.v3';
 
 // Bộ sinh số ngẫu nhiên có hạt giống, để dữ liệu mẫu giống nhau mỗi lần tạo.
 function seededRandom(seed: number): () => number {
@@ -159,12 +223,20 @@ export function createSeedDb(now = new Date()): MockDb {
       'Bản nháp, khách hàng chưa nhìn thấy.', 'DRAFT'),
   ];
 
-  const tt = (id: string, eventId: string, name: string, price: number, totalQuantity: number): DbTicketType => ({
+  const tt = (
+    id: string,
+    eventId: string,
+    name: string,
+    price: number,
+    totalQuantity: number,
+    seating: Seating = 'GENERAL',
+  ): DbTicketType => ({
     id,
     eventId,
     name,
     description: '',
     price,
+    seating,
     totalQuantity,
     availableQuantity: totalQuantity,
   });
@@ -183,7 +255,18 @@ export function createSeedDb(now = new Date()): MockDb {
     tt('tt-1071', 'ev-107', 'Vé vào cổng', 50_000, 1000),
   ];
 
-  const db: MockDb = { version: 2, users, events, ticketTypes, orders: [], activities: [], sessions: [] };
+  const db: MockDb = {
+    version: 3,
+    users,
+    events,
+    ticketTypes,
+    orders: [],
+    activities: [],
+    sessions: [],
+    seatMaps: [],
+    queueSettings: [],
+    queueEntries: [],
+  };
   const rand = seededRandom(20261119);
   const customers = users.filter((u) => u.role === 'customer');
 
@@ -201,6 +284,7 @@ export function createSeedDb(now = new Date()): MockDb {
       cancelledBy: null,
       cancelReason: null,
       idempotencyKey: null,
+      seatIds: [],
     };
     t.availableQuantity -= quantity;
     db.orders.push(order);
@@ -266,24 +350,112 @@ export function createSeedDb(now = new Date()): MockDb {
   // Đơn của alice cho vở kịch sắp diễn: đã quá hạn hủy.
   book(ticketTypes.find((x) => x.id === 'tt-1061')!, 'alice', 2, new Date(nowMs - 2 * 86_400_000).toISOString());
 
+  addSeatedEvents(db, now, at, plusHours, created, rand);
   return db;
 }
 
-let memoryDb: MockDb | null = null;
+/**
+ * Hai sự kiện chọn ghế (thêm sau phần sinh lịch sử ở trên nên dữ liệu cũ không đổi):
+ *  - ev-108: nhà hát hàng cong 367 ghế, mở bán qua hàng chờ, giống dữ liệu `npm run seed` của backend
+ *  - ev-109: ghế thẳng, không có hàng chờ, chọn ghế được ngay
+ */
+function addSeatedEvents(
+  db: MockDb,
+  now: Date,
+  at: (days: number, h: number, m?: number) => string,
+  plusHours: (iso: string, hours: number) => string,
+  created: string,
+  rand: () => number,
+) {
+  const nowIso = now.toISOString();
+  const event = (id: string, title: string, category: string, startTime: string, hours: number, venue: string, description: string) =>
+    db.events.push({ id, title, category, description, venue, startTime, endTime: plusHours(startTime, hours), status: 'PUBLISHED', imageUrl: null, createdAt: created });
+  const tier = (id: string, eventId: string, name: string, price: number) => {
+    const t: DbTicketType = { id, eventId, name, description: '', price, seating: 'ASSIGNED', totalQuantity: 0, availableQuantity: 0 };
+    db.ticketTypes.push(t);
+    return t;
+  };
+  const addMap = (eventId: string, layout: SeatLayout) => {
+    const seats = layout.seats.map((s) => ({ ...s, id: makeUuid(rand), row: s.row ?? null, section: s.section ?? null }));
+    db.seatMaps.push({ eventId, version: 1, width: layout.width, height: layout.height, seatSize: layout.seatSize ?? 24, sections: layout.sections, decorations: layout.decorations, seats, updatedAt: nowIso });
+    for (const t of db.ticketTypes.filter((x) => x.eventId === eventId && x.seating === 'ASSIGNED')) {
+      t.totalQuantity = seats.filter((s) => s.ticketTypeId === t.id && !s.blocked).length;
+      t.availableQuantity = t.totalQuantity;
+    }
+    return seats;
+  };
+  const bookSeats = (eventId: string, userId: string, labels: string[], createdAt: string) => {
+    const map = db.seatMaps.find((m) => m.eventId === eventId)!;
+    const seats = labels.map((l) => map.seats.find((s) => s.label === l)!);
+    const t = db.ticketTypes.find((x) => x.id === seats[0].ticketTypeId)!;
+    const order: DbOrder = {
+      id: makeUuid(rand), userId, eventId, ticketTypeId: t.id, quantity: seats.length, unitPrice: t.price, status: 'CONFIRMED',
+      createdAt, cancelledAt: null, cancelledBy: null, cancelReason: null, idempotencyKey: null, seatIds: seats.map((s) => s.id),
+    };
+    t.availableQuantity -= seats.length;
+    db.orders.push(order);
+    db.activities.push({ id: makeUuid(rand), type: 'BOOKED', orderId: order.id, eventId, quantity: seats.length, amount: seats.length * t.price, at: createdAt });
+  };
+  const ago = (hours: number) => new Date(now.getTime() - hours * 3_600_000).toISOString();
 
-export function loadDb(): MockDb {
-  if (memoryDb) return memoryDb;
+  // ---- ev-108: nhà hát, có hàng chờ ----
+  event('ev-108', 'Nhạc kịch: Những người khốn khổ', 'musical', at(21, 20), 3, 'Nhà hát Hòa Bình, TP. Hồ Chí Minh',
+    'Chọn ghế trên sơ đồ nhà hát. Mở bán qua hàng chờ ảo: tới giờ mở bán, những người đã vào hàng được xếp thứ tự ngẫu nhiên.');
+  const a = tier('tt-1081', 'ev-108', 'Hạng A', 1_500_000);
+  const b = tier('tt-1082', 'ev-108', 'Hạng B', 900_000);
+  const c = tier('tt-1083', 'ev-108', 'Hạng C', 400_000);
+  addMap('ev-108', buildTheaterLayout([{ ticketTypeId: a.id, rows: 4 }, { ticketTypeId: b.id, rows: 6 }, { ticketTypeId: c.id, rows: 4 }]));
+  bookSeats('ev-108', 'alice', ['A3', 'A4'], ago(30));
+  bookSeats('ev-108', 'bob', ['E14', 'E15', 'E16'], ago(26));
+  bookSeats('ev-108', 'carol', ['K20', 'K21'], ago(20));
+  const saleStart = new Date(now.getTime() + 2 * 60_000);
+  saleStart.setUTCSeconds(0, 0);
+  db.queueSettings.push({ eventId: 'ev-108', enabled: true, saleStartAt: saleStart.toISOString(), maxActive: 2, accessMinutes: 10, randomizedAt: null, lastPosition: 0, updatedAt: nowIso });
+  for (let i = 1; i <= 6; i++) {
+    db.queueEntries.push({ eventId: 'ev-108', userId: `${DEMO_QUEUE_PREFIX}${i}`, status: 'WAITING', position: null, joinedAt: ago(0.2 - i * 0.01), lastSeenAt: nowIso, admittedAt: null, expiresAt: null, finishedAt: null });
+  }
+
+  // ---- ev-109: ghế thẳng, không có hàng chờ ----
+  event('ev-109', 'Hòa nhạc thính phòng: Bốn mùa', 'concert', at(12, 20), 2, 'Nhà hát Lớn Hà Nội',
+    'Dàn nhạc thính phòng trình diễn bản "Bốn mùa" của Vivaldi. Chọn ghế ngồi ngay trên sơ đồ, không cần xếp hàng.');
+  const vip = tier('tt-1091', 'ev-109', 'Hạng nhất', 1_200_000);
+  const std = tier('tt-1092', 'ev-109', 'Hạng hai', 600_000);
+  addMap('ev-109', buildGridLayout([{ ticketTypeId: vip.id, rows: 3 }, { ticketTypeId: std.id, rows: 5 }], 16));
+  bookSeats('ev-109', 'bob', ['A7', 'A8'], ago(50));
+  bookSeats('ev-109', 'carol', ['B9', 'B10', 'B11'], ago(40));
+  bookSeats('ev-109', 'bob', ['E3', 'E4'], ago(10));
+  bookSeats('ev-109', 'carol', ['F12'], ago(5));
+}
+
+let memoryDb: MockDb | null = null;
+let memoryRaw: string | null = null;
+
+function readRaw(): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Đọc dữ liệu giả. Nhiều tab dùng chung localStorage (ví dụ hai khách cùng xếp hàng), nên mỗi lần
+ * đọc đều so với bản trong localStorage và nạp lại nếu tab khác vừa ghi.
+ */
+export function loadDb(): MockDb {
+  const raw = readRaw();
+  if (memoryDb && (raw === null || raw === memoryRaw)) return memoryDb;
+  if (raw) {
+    try {
       const parsed = JSON.parse(raw) as MockDb;
-      if (parsed?.version === 2) {
+      if (parsed?.version === 3) {
         memoryDb = parsed;
+        memoryRaw = raw;
         return memoryDb;
       }
+    } catch {
+      // dữ liệu hỏng hoặc không đọc được: tạo lại
     }
-  } catch {
-    // dữ liệu hỏng hoặc không đọc được: tạo lại
   }
   memoryDb = createSeedDb();
   saveDb(memoryDb);
@@ -293,9 +465,10 @@ export function loadDb(): MockDb {
 export function saveDb(db: MockDb): void {
   memoryDb = db;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    memoryRaw = JSON.stringify(db);
+    localStorage.setItem(STORAGE_KEY, memoryRaw);
   } catch {
-    // chỉ giữ trong bộ nhớ
+    memoryRaw = null; // chỉ giữ trong bộ nhớ
   }
 }
 

@@ -13,6 +13,9 @@ const dateTimeFormat = new Intl.DateTimeFormat('vi-VN', {
 });
 const weekdayFormat = new Intl.DateTimeFormat('vi-VN', { timeZone: TIME_ZONE, weekday: 'long' });
 const timeFormat = new Intl.DateTimeFormat('vi-VN', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const badgeFormat = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, day: '2-digit', month: 'numeric' });
+const shortWeekdayFormat = new Intl.DateTimeFormat('vi-VN', { timeZone: TIME_ZONE, weekday: 'short' });
+const hourFormat = new Intl.DateTimeFormat('vi-VN', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit' });
 
 export const formatCurrency = (value: number) => currencyFormat.format(value);
 export const formatNumber = (value: number) => numberFormat.format(value);
@@ -96,4 +99,32 @@ export function formatTimeRange(startIso: string, endIso: string | null | undefi
   if (!endIso) return start;
   const sameDay = formatDateTime(startIso).slice(6) === formatDateTime(endIso).slice(6);
   return sameDay ? `${start} – ${formatDateTime(endIso).slice(0, 5)}` : `${start} → ${formatDateTime(endIso)}`;
+}
+
+/** Khối ngày trên thẻ sự kiện: { day: "19", month: "TH 11", weekday: "T5", time: "20:00" }. */
+export function dateBadge(iso: string): { day: string; month: string; weekday: string; time: string } {
+  const d = valid(iso);
+  if (!d) return { day: '—', month: '', weekday: '', time: '' };
+  const parts = Object.fromEntries(badgeFormat.formatToParts(d).map((p) => [p.type, p.value]));
+  return {
+    day: parts.day ?? '',
+    month: `TH ${parts.month ?? ''}`,
+    weekday: shortWeekdayFormat.format(d),
+    time: hourFormat.format(d),
+  };
+}
+
+const labelCollator = new Intl.Collator('vi', { numeric: true, sensitivity: 'base' });
+
+/** Nhãn ghế theo thứ tự tự nhiên: "A2, A10, B1". */
+export function seatLabels(seats: Array<{ label: string }>): string {
+  return seats
+    .map((s) => s.label)
+    .sort(labelCollator.compare)
+    .join(', ');
+}
+
+/** Sắp ghế theo nhãn tự nhiên (A2 trước A10). */
+export function sortSeats<T extends { label: string }>(seats: T[]): T[] {
+  return [...seats].sort((a, b) => labelCollator.compare(a.label, b.label));
 }

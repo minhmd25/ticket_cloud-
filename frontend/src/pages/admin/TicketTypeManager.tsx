@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { api, ApiError, errorMessage, type TicketType, type TicketTypeInput } from '../../api';
+import { api, ApiError, errorMessage, type Seating, type TicketType, type TicketTypeInput } from '../../api';
 import { Alert, FieldError } from '../../components/ui';
 import { formatCurrency, formatNumber } from '../../lib/format';
 
@@ -7,11 +7,17 @@ interface Values {
   name: string;
   price: string;
   totalQuantity: string;
+  seating: Seating;
 }
 
 type Errors = Partial<Record<keyof Values, string>>;
 
-const EMPTY: Values = { name: '', price: '', totalQuantity: '' };
+const EMPTY: Values = { name: '', price: '', totalQuantity: '', seating: 'GENERAL' };
+
+export const SEATING_OPTIONS: Array<{ value: Seating; label: string }> = [
+  { value: 'GENERAL', label: 'Theo số lượng' },
+  { value: 'ASSIGNED', label: 'Chọn ghế trên sơ đồ' },
+];
 
 export function validateTicketType(values: Values): Errors {
   const errors: Errors = {};
@@ -19,15 +25,19 @@ export function validateTicketType(values: Values): Errors {
   else if (values.name.trim().length > 100) errors.name = 'Tên hạng vé tối đa 100 ký tự.';
   if (!values.price.trim()) errors.price = 'Vui lòng nhập giá.';
   else if (!/^\d+$/.test(values.price.trim())) errors.price = 'Giá phải là số nguyên không âm (VND).';
-  if (!values.totalQuantity.trim()) errors.totalQuantity = 'Vui lòng nhập số lượng.';
-  else if (!/^\d+$/.test(values.totalQuantity.trim())) errors.totalQuantity = 'Số lượng phải là số nguyên không âm.';
+  if (values.seating === 'GENERAL') {
+    if (!values.totalQuantity.trim()) errors.totalQuantity = 'Vui lòng nhập số lượng.';
+    else if (!/^\d+$/.test(values.totalQuantity.trim())) errors.totalQuantity = 'Số lượng phải là số nguyên không âm.';
+  }
   return errors;
 }
 
+/** Hạng chọn ghế không gửi totalQuantity: backend tính theo số ghế trên sơ đồ. */
 const toInput = (v: Values): TicketTypeInput => ({
   name: v.name.trim(),
   price: Number(v.price),
-  totalQuantity: Number(v.totalQuantity),
+  seating: v.seating,
+  ...(v.seating === 'GENERAL' ? { totalQuantity: Number(v.totalQuantity) } : {}),
 });
 
 /** Đổi lỗi của backend thành lỗi dưới từng ô nhập. */
@@ -38,8 +48,11 @@ function pickErrors(error: unknown): Errors {
     return { totalQuantity: reserved !== undefined ? `Tối thiểu ${formatNumber(reserved)} vé.` : error.message };
   }
   if (error.code === 'TICKET_TYPE_NAME_TAKEN') return { name: 'Sự kiện đã có hạng vé cùng tên.' };
-  const { name, price, totalQuantity } = error.fieldErrors;
-  return { name, price, totalQuantity };
+  if (error.code === 'SEAT_MANAGED_QUANTITY') return { totalQuantity: 'Số vé của hạng chọn ghế tính theo sơ đồ ghế.' };
+  if (error.code === 'TICKET_TYPE_HAS_ORDERS') return { seating: 'Hạng vé đã có đơn, không đổi được cách bán.' };
+  if (error.code === 'TICKET_TYPE_HAS_SEATS') return { seating: 'Gỡ các ghế của hạng này khỏi sơ đồ trước.' };
+  const { name, price, totalQuantity, seating } = error.fieldErrors;
+  return { name, price, totalQuantity, seating };
 }
 
 /** Quản lý hạng vé của một sự kiện: thêm mới, sửa giá và số lượng mở bán. */
@@ -64,7 +77,7 @@ export function TicketTypeManager({
 
   const startEdit = (t: TicketType) => {
     setEditingId(String(t.id));
-    setEditValues({ name: t.name, price: String(t.price), totalQuantity: String(t.totalQuantity) });
+    setEditValues({ name: t.name, price: String(t.price), totalQuantity: String(t.totalQuantity), seating: t.seating });
     setEditErrors({});
     setMessage(null);
   };
@@ -78,7 +91,10 @@ export function TicketTypeManager({
     const patch: Partial<TicketTypeInput> = {};
     if (input.name !== t.name) patch.name = input.name;
     if (input.price !== t.price) patch.price = input.price;
-    if (input.totalQuantity !== t.totalQuantity) patch.totalQuantity = input.totalQuantity;
+    if (input.seating !== t.seating) patch.seating = input.seating;
+    // Đổi sang bán theo số lượng: gửi kèm số vé (backend đặt về 0 khi đổi cách bán).
+    if (input.totalQuantity !== undefined && (input.totalQuantity !== t.totalQuantity || patch.seating))
+      patch.totalQuantity = input.totalQuantity;
     if (Object.keys(patch).length === 0) {
       setEditingId(null);
       return;
@@ -119,7 +135,7 @@ export function TicketTypeManager({
     }
   };
 
-  const editInput = (field: keyof Values, label: string, extra: Record<string, unknown> = {}) => (
+  const editInput = (field: Exclude<keyof Values, 'seating'>, label: string, extra: Record<string, unknown> = {}) => (
     <>
       <input
         aria-label={label}
@@ -148,6 +164,7 @@ export function TicketTypeManager({
           <thead>
             <tr>
               <th scope="col">Hạng vé</th>
+              <th scope="col">Cách bán</th>
               <th scope="col" className="num">
                 Giá (VND)
               </th>
@@ -170,7 +187,7 @@ export function TicketTypeManager({
           <tbody>
             {ticketTypes.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted">
+                <td colSpan={7} className="muted">
                   Chưa có hạng vé nào.{!readOnly && ' Thêm hạng vé ở bên dưới để mở bán.'}
                 </td>
               </tr>
@@ -180,9 +197,28 @@ export function TicketTypeManager({
               return editing ? (
                 <tr key={t.id} className="row-editing">
                   <td>{editInput('name', `Tên hạng vé ${t.name}`, { maxLength: 100 })}</td>
+                  <td>
+                    <select
+                      aria-label={`Cách bán hạng vé ${t.name}`}
+                      value={editValues.seating}
+                      onChange={(e) => setEditValues((v) => ({ ...v, seating: e.target.value as Seating }))}
+                      disabled={busy}
+                    >
+                      {SEATING_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldError id="edit-seating-error" message={editErrors.seating} />
+                  </td>
                   <td className="num">{editInput('price', `Giá hạng vé ${t.name}`, { inputMode: 'numeric' })}</td>
                   <td className="num">
-                    {editInput('totalQuantity', `Số lượng bán hạng vé ${t.name}`, { inputMode: 'numeric' })}
+                    {editValues.seating === 'ASSIGNED' ? (
+                      <span className="muted small">Theo sơ đồ</span>
+                    ) : (
+                      editInput('totalQuantity', `Số lượng bán hạng vé ${t.name}`, { inputMode: 'numeric' })
+                    )}
                   </td>
                   <td className="num">{formatNumber(t.reservedQuantity)}</td>
                   <td className="num">—</td>
@@ -203,6 +239,11 @@ export function TicketTypeManager({
               ) : (
                 <tr key={t.id}>
                   <td className="cell-strong">{t.name}</td>
+                  <td>
+                    <span className={`tag ${t.seating === 'ASSIGNED' ? 'tag--seat' : 'tag--plain'}`}>
+                      {t.seating === 'ASSIGNED' ? 'Chọn ghế' : 'Số lượng'}
+                    </span>
+                  </td>
                   <td className="num">{formatCurrency(t.price)}</td>
                   <td className="num">{formatNumber(t.totalQuantity)}</td>
                   <td className="num">{formatNumber(t.reservedQuantity)}</td>
@@ -266,16 +307,31 @@ export function TicketTypeManager({
               <FieldError id="new-price-error" message={newErrors.price} />
             </div>
             <div className="field">
+              <label htmlFor="new-seating">Cách bán</label>
+              <select
+                id="new-seating"
+                value={newValues.seating}
+                onChange={(e) => setNewValues((v) => ({ ...v, seating: e.target.value as Seating }))}
+                disabled={busy}
+              >
+                {SEATING_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
               <label htmlFor="new-quantity">Số lượng bán</label>
               <input
                 id="new-quantity"
                 inputMode="numeric"
-                value={newValues.totalQuantity}
+                value={newValues.seating === 'ASSIGNED' ? '' : newValues.totalQuantity}
                 onChange={(e) => setNewValues((v) => ({ ...v, totalQuantity: e.target.value }))}
                 aria-invalid={Boolean(newErrors.totalQuantity)}
                 aria-describedby={newErrors.totalQuantity ? 'new-quantity-error' : undefined}
-                disabled={busy}
-                placeholder="100"
+                disabled={busy || newValues.seating === 'ASSIGNED'}
+                placeholder={newValues.seating === 'ASSIGNED' ? 'Tính theo sơ đồ ghế' : '100'}
               />
               <FieldError id="new-quantity-error" message={newErrors.totalQuantity} />
             </div>

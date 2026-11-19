@@ -5,6 +5,7 @@ Bài tập lớn môn Điện toán đám mây. Khách hàng tìm sự kiện, �
 | Khách hàng | Quản trị viên |
 |---|---|
 | ![Danh sách sự kiện](frontend/docs/screenshots/03-danh-sach-su-kien.png) | ![Thống kê theo ngày](frontend/docs/screenshots/26-thong-ke-theo-ngay.png) |
+| ![Chọn ghế trên sơ đồ](frontend/docs/screenshots/16-chon-ghe.png) | ![Quản lý sơ đồ ghế](frontend/docs/screenshots/30-quan-tri-so-do-ghe.png) |
 
 ## Phân công
 
@@ -50,18 +51,18 @@ API thống kê ◀──── Azure Functions ◀──── Azure Storage Qu
 - Đặt tối đa 10 vé mỗi đơn. Backend chống bán vượt số vé, kể cả khi nhiều người tranh vé cuối cùng lúc.
 - Nếu mạng rớt lúc đặt và khách bấm lại, hệ thống không tạo đơn trùng: frontend gửi lại cùng `Idempotency-Key`, backend trả lại đơn cũ.
 - Xem vé của mình và chi tiết từng đơn. Hủy được đơn kèm lý do nếu còn ít nhất 24 giờ trước giờ diễn, màn hình hiện rõ hạn hủy. Khách không xem được đơn của người khác.
-- Chọn ghế trên sơ đồ với các hạng vé bán theo ghế. Một ghế không bao giờ bị bán cho hai người. Nếu có ghế vừa bị người khác đặt, cả đơn bị từ chối và khách chọn lại. *(Backend đã có, giao diện đang làm.)*
-- Sự kiện đông người mua dùng hàng chờ ảo. Người vào trước giờ mở bán được xếp thứ tự ngẫu nhiên lúc mở bán, tới lượt mới được mua trong một khoảng thời gian giới hạn. *(Backend đã có, giao diện đang làm.)*
+- Chọn ghế trên sơ đồ với các hạng vé bán theo ghế. Một ghế không bao giờ bị bán cho hai người. Nếu có ghế vừa bị người khác đặt, cả đơn bị từ chối, ghế đó được bỏ khỏi lựa chọn và khách chọn lại.
+- Sự kiện đông người mua dùng hàng chờ ảo. Người vào trước giờ mở bán được xếp thứ tự ngẫu nhiên lúc mở bán, tới lượt mới được mua trong một khoảng thời gian giới hạn. Trang chờ đếm ngược theo giờ máy chủ và tự cập nhật vị trí.
 
 **Quản trị viên** (`/admin`):
 
 - Tạo, sửa, hủy sự kiện. Sự kiện có trạng thái nháp hoặc mở bán. Hủy sự kiện thì mọi đơn còn hiệu lực bị hủy theo.
 - Khai báo hạng vé. Không giảm được số vé xuống dưới số vé khách đã đặt.
-- Lưu sơ đồ ghế tự do (tọa độ, góc xoay, khu ghế, tới 5000 ghế), khóa/mở ghế, chép sơ đồ từ sự kiện khác. Cấu hình hàng chờ: giờ mở bán, số người mua cùng lúc, số phút mỗi lượt. *(Backend đã có, giao diện đang làm.)*
+- Lưu sơ đồ ghế tự do (tọa độ, góc xoay, khu ghế, tới 5000 ghế), khóa/mở ghế, chép sơ đồ từ sự kiện khác. Tạo nhanh sơ đồ từ mẫu (nhà hát hàng cong hoặc ghế thẳng) hoặc nhập file JSON, xem trước rồi lưu. Cấu hình hàng chờ: giờ mở bán, số người mua cùng lúc, số phút mỗi lượt, xem số người theo trạng thái.
 - Tra cứu đơn theo sự kiện và trạng thái, kèm tổng số đơn, số vé, số tiền. Hủy được từng đơn.
 - Thống kê vé đặt, vé hủy và doanh thu theo ngày hoặc theo sự kiện, có biểu đồ. Khi Azure không phản hồi, trang vẫn hiện số liệu lưu tạm kèm cảnh báo.
 
-Giao diện dùng được trên điện thoại và có chế độ tối.
+Giao diện dùng được trên điện thoại và có chế độ tối. Font Be Vietnam Pro đi kèm ứng dụng, không tải từ máy chủ ngoài.
 
 ## 3. Chạy trên máy
 
@@ -75,7 +76,7 @@ npm install
 npm run dev
 ```
 
-Mở <http://localhost:5173>. Ở chế độ này frontend dùng một backend giả chạy ngay trong trình duyệt (`frontend/src/api/mock`), có cùng đường dẫn, dữ liệu, mã lỗi và tài khoản như backend thật. Thanh màu vàng ở chân trang cho phép giả lập mất kết nối và đặt lại dữ liệu mẫu.
+Mở <http://localhost:5173>. Ở chế độ này frontend dùng một backend giả chạy ngay trong trình duyệt (`frontend/src/api/mock`), có cùng đường dẫn, dữ liệu, mã lỗi và tài khoản như backend thật. Dữ liệu mẫu có thêm hai sự kiện chọn ghế: nhà hát hàng cong mở bán qua hàng chờ (vài người xếp hàng giả để thấy hàng chờ chạy), và một buổi hòa nhạc ghế thẳng đặt được ngay. Thanh màu vàng ở chân trang cho phép giả lập mất kết nối và đặt lại dữ liệu mẫu.
 
 ### 3.2. Chạy cả backend và frontend
 
@@ -186,20 +187,21 @@ Script chỉ in token ra màn hình. Không dán token vào log, tài liệu hay
 | Lệnh | Thư mục | Kiểm tra gì |
 |---|---|---|
 | `npm test` | `cloud-backend` | 103 test tích hợp chạy trên PostgreSQL thật (cần `docker compose up -d db`) |
-| `npm test` | `frontend` | 50 test cho lớp gọi API, giao diện khách hàng và giao diện quản trị |
-| `npm run e2e` | `frontend` | 5 kịch bản Playwright trên Chrome, dùng backend giả |
-| `npm run e2e:api` | `frontend` | Cùng 5 kịch bản, dùng backend thật ở `localhost:3000` |
+| `npm test` | `frontend` | 61 test cho lớp gọi API (cả sơ đồ ghế, đặt ghế, hàng chờ), giao diện khách hàng và giao diện quản trị |
+| `npm run e2e` | `frontend` | 6 kịch bản Playwright trên Chrome, dùng backend giả |
+| `npm run e2e:api` | `frontend` | Cùng 6 kịch bản, dùng backend thật ở `localhost:3000` |
 | `npm run typecheck` | cả hai | Kiểm tra kiểu TypeScript |
 
 Test backend dùng database `ticketing_test` (đặt bởi `TEST_DATABASE_URL`). Database này **bị xóa dữ liệu** mỗi lần chạy test. Nếu Vitest báo lỗi khởi tạo worker fork trên Windows, chạy `npm test -- --pool=threads`.
 
-Kịch bản e2e tự tạo một sự kiện riêng rồi đi hết luồng:
+Kịch bản e2e tự tạo sự kiện riêng rồi đi hết luồng:
 
 1. Quản trị viên tạo sự kiện và hạng vé.
 2. Khách lọc sự kiện và đặt vé. Mạng rớt đúng lúc đặt, khách bấm lại, hệ thống không tạo đơn trùng.
 3. Khách hủy đơn. Đơn quá hạn hủy không hủy được. Khách không vào được trang quản trị và không xem được đơn của khách khác.
 4. Quản trị viên thấy đơn và thống kê đúng.
-5. Giao diện hiển thị đúng trên điện thoại và ở chế độ tối.
+5. Quản trị viên tạo hạng vé chọn ghế, tạo sơ đồ, bật hàng chờ mỗi lượt 1 người. bob tới lượt trước, alice phải chờ; bob đặt ghế xong thì alice được vào. Quản trị viên khóa đúng ghế alice đang chọn: đơn bị từ chối, alice chọn ghế khác và đặt được.
+6. Giao diện hiển thị đúng trên điện thoại (cả sơ đồ ghế) và ở chế độ tối.
 
 Kịch bản chạy trên Google Chrome cài trong máy. Nếu máy chưa có Chrome, chạy `npx playwright install chrome`. Thêm `E2E_SCREENSHOTS=1` trước lệnh để lưu ảnh chụp vào `frontend/docs/screenshots`.
 
@@ -460,11 +462,13 @@ frontend/
       mock/                    backend giả: dữ liệu mẫu (db.ts) và xử lý request (server.ts)
     auth/                      phiên đăng nhập, chặn trang khi chưa đăng nhập hoặc không có quyền
     components/                khung trang, thông báo, trạng thái tải/rỗng/lỗi, phân trang
+      SeatMap.tsx              vẽ sơ đồ ghế bằng SVG (dùng chung khách hàng và quản trị), hỏi lại trạng thái ghế định kỳ
     lib/                       định dạng tiền, ngày giờ (giờ Việt Nam), hook tải dữ liệu
+      seatLayouts.ts           sinh sơ đồ mẫu: nhà hát hàng cong, các hàng ghế thẳng
     pages/
       LoginPage.tsx            đăng nhập (dùng chung)
-      customer/                giao diện khách hàng
-      admin/                   giao diện quản trị
+      customer/                giao diện khách hàng (QueueGate.tsx: trang chờ của hàng chờ ảo)
+      admin/                   giao diện quản trị (SeatMapManager.tsx, QueueSettingsPanel.tsx)
     test/                      test giao diện
   e2e/                         kịch bản Playwright
   nginx/, Dockerfile           đóng gói để triển khai
