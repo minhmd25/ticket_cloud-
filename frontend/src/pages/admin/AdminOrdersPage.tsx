@@ -1,7 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, type OrderStatus } from '../../api';
 import { EmptyState, ErrorState, Loading, PageHeader, Pager, StatusBadge } from '../../components/ui';
-import { formatCurrency, formatDateTime, formatNumber, shortId, STATUS_OPTIONS } from '../../lib/format';
+import { formatCurrency, formatDateTime, formatNumber, seatLabels, shortId, STATUS_OPTIONS } from '../../lib/format';
 import { useAsync } from '../../lib/useAsync';
 
 const PAGE_SIZE = 20;
@@ -121,7 +121,10 @@ export function AdminOrdersPage() {
                       {shortId(o.id)}
                     </td>
                     <td>{o.event.title}</td>
-                    <td>{o.ticketType.name}</td>
+                    <td>
+                      {o.ticketType.name}
+                      {o.seats.length > 0 && <div className="muted small">Ghế {seatLabels(o.seats)}</div>}
+                    </td>
                     <td className="num">{formatNumber(o.quantity)}</td>
                     <td>{o.userId}</td>
                     <td>

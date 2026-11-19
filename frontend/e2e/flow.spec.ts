@@ -9,9 +9,12 @@ const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'DemoAdmin2026!';
 
 const stamp = new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '');
 const EVENT_TITLE = `Nhạc kịch Ánh trăng Hồ Gươm #${stamp}`;
+const SEAT_EVENT = `Hòa nhạc thính phòng #${stamp}`;
 
 async function shot(page: Page, name: string, fullPage = true) {
   if (!SHOTS) return;
+  // Kịch bản 5 mở nhiều tab cùng lúc; tab nằm sau không được vẽ lại nên phải đưa lên trước rồi mới chụp.
+  await page.bringToFront();
   // Cuộn về đầu trang để thanh tiêu đề cố định không bị in lơ lửng khi chụp toàn trang.
   if (fullPage) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `docs/screenshots/${name}.png`, fullPage });
@@ -37,10 +40,18 @@ function vnInput(days: number, hhmm: string) {
   return `${d.toISOString().slice(0, 10)}T${hhmm}`;
 }
 
+/** Giờ Việt Nam hiện tại cộng `minutes` phút, dạng ô datetime-local. */
+function vnNow(minutes: number) {
+  return new Date(Date.now() + 7 * 3_600_000 + minutes * 60_000).toISOString().slice(0, 16);
+}
+
+const seat = (label: string) => new RegExp(`^Ghế ${label} ·`);
+
 test.describe.configure({ mode: 'serial' });
 
 let orderCode = '';
 let orderUrl = '';
+let seatEventId = '';
 
 // Backend thật: mỗi kịch bản một trình duyệt sạch. Backend giả lưu dữ liệu trong localStorage
 // của trình duyệt, nên các kịch bản dùng chung một ngữ cảnh để thấy dữ liệu của nhau
@@ -121,11 +132,11 @@ test('2. khách hàng lọc sự kiện, đặt vé, mất mạng khi đặt kh�
   await page.getByRole('link', { name: EVENT_TITLE }).click();
   const form = page.getByRole('form', { name: 'Đặt vé' });
   await form.getByText('VIP').click();
-  await form.getByLabel('Số lượng').fill('6');
+  await form.getByLabel('Số lượng', { exact: true }).fill('6');
   await expect(form.getByText('Hạng vé này chỉ còn 5 vé.')).toBeVisible();
   await shot(page, '05-dat-ve-loi-so-luong');
 
-  await form.getByLabel('Số lượng').fill('2');
+  await form.getByLabel('Số lượng', { exact: true }).fill('2');
   await expect(form.getByText('3.000.000 ₫').or(form.getByText('3.000.000 đ'))).toBeVisible();
   await form.getByRole('button', { name: 'Đặt vé' }).click();
   await expect(form.getByText(/Đặt vé thành công/)).toBeVisible();
@@ -137,7 +148,7 @@ test('2. khách hàng lọc sự kiện, đặt vé, mất mạng khi đặt kh�
 
   // Rớt mạng sau khi máy chủ đã nhận đơn: bấm lại không tạo đơn thứ hai.
   await form.getByText('Thường').click();
-  await form.getByLabel('Số lượng').fill('1');
+  await form.getByLabel('Số lượng', { exact: true }).fill('1');
   if (API_MODE) {
     await page.route(
       '**/api/orders',
@@ -158,9 +169,9 @@ test('2. khách hàng lọc sự kiện, đặt vé, mất mạng khi đặt kh�
   await expect(form.getByText(/Đặt vé thành công/)).toBeVisible();
 
   await page.getByRole('link', { name: 'Vé của tôi' }).first().click();
-  await expect(page.getByRole('cell', { name: orderCode, exact: true })).toBeVisible();
-  const rowsOfEvent = page.locator('tbody tr').filter({ hasText: EVENT_TITLE });
-  await expect(rowsOfEvent).toHaveCount(2); // 2 vé VIP + 1 vé Thường, không có đơn trùng
+  await expect(page.locator('.ticket').filter({ hasText: orderCode })).toBeVisible();
+  const ticketsOfEvent = page.locator('.ticket').filter({ hasText: EVENT_TITLE });
+  await expect(ticketsOfEvent).toHaveCount(2); // 2 vé VIP + 1 vé Thường, không có đơn trùng
   await shot(page, '07-ve-cua-toi');
 });
 
@@ -168,7 +179,12 @@ test('3. khách hàng hủy đơn, không xem được đơn người khác, đ�
   const page = await newPage(browser);
   await login(page, 'alice', CUSTOMER_PASSWORD);
   await page.goto('/my-tickets');
-  await page.locator('tbody tr').filter({ hasText: EVENT_TITLE }).filter({ hasText: 'Thường' }).getByRole('link').click();
+  await page
+    .locator('.ticket')
+    .filter({ hasText: EVENT_TITLE })
+    .filter({ hasText: 'Thường' })
+    .getByRole('link', { name: /Xem chi tiết đơn/ })
+    .click();
   await page.getByRole('button', { name: 'Yêu cầu hủy đơn' }).click();
   await page.getByLabel('Lý do hủy (không bắt buộc)').fill('Đổi lịch công tác');
   await shot(page, '08-xac-nhan-huy');
@@ -242,7 +258,110 @@ test('4. quản trị viên: giảm vé bị chặn, tra đơn, xem thống kê'
   await shot(page, '28-thong-ke-theo-su-kien');
 });
 
-test('5. giao diện điện thoại và chế độ tối', async ({ browser }) => {
+test('5. chọn ghế trên sơ đồ và mở bán qua hàng chờ ảo', async ({ browser }) => {
+  // Quản trị viên: hai hạng chọn ghế, sơ đồ lưới 5 hàng x 12 ghế, hàng chờ mở bán ngay, mỗi lượt 1 người mua.
+  const admin = await newPage(browser);
+  await login(admin, 'admin1', ADMIN_PASSWORD);
+  await admin.getByRole('link', { name: 'Tạo sự kiện' }).click();
+  const form = admin.getByRole('form', { name: 'Thông tin sự kiện' });
+  await form.getByLabel(/Tên sự kiện/).fill(SEAT_EVENT);
+  await form.getByLabel(/Loại hình/).selectOption('concert');
+  await form.getByLabel(/Bắt đầu/).fill(vnInput(6, '20:00'));
+  await form.getByLabel(/Kết thúc/).fill(vnInput(6, '22:00'));
+  await form.getByLabel(/Địa điểm/).fill('Nhà hát Lớn Hà Nội');
+  await form.getByLabel('Mô tả').fill('Dàn nhạc thính phòng chơi Vivaldi. Chọn ghế trên sơ đồ, mở bán qua hàng chờ.');
+  await form.getByRole('button', { name: 'Tạo sự kiện' }).click();
+  await expect(admin.getByText(/Đã tạo sự kiện/)).toBeVisible();
+  seatEventId = decodeURIComponent(new URL(admin.url()).pathname.split('/')[3]);
+
+  const add = admin.getByRole('form', { name: 'Thêm hạng vé' });
+  for (const [name, price] of [
+    ['Hạng nhất', '900000'],
+    ['Hạng hai', '500000'],
+  ]) {
+    await add.getByLabel('Tên hạng vé').fill(name);
+    await add.getByLabel('Giá (VND)').fill(price);
+    await add.getByLabel('Cách bán').selectOption('ASSIGNED');
+    await add.getByRole('button', { name: 'Thêm hạng vé' }).click();
+    await expect(admin.getByText(`Đã thêm hạng vé "${name}".`)).toBeVisible();
+  }
+  await admin.getByLabel('Mẫu sơ đồ').selectOption('grid');
+  await admin.getByLabel('Số ghế mỗi hàng').fill('12');
+  await admin.getByLabel('Hạng nhất', { exact: true }).fill('2');
+  await admin.getByLabel('Hạng hai', { exact: true }).fill('3');
+  await admin.getByRole('button', { name: 'Xem trước sơ đồ' }).click();
+  await expect(admin.getByText('Bản xem trước', { exact: true })).toBeVisible();
+  await admin.getByRole('button', { name: 'Lưu sơ đồ' }).click();
+  await expect(admin.getByText(/Đã lưu sơ đồ 60 ghế/)).toBeVisible();
+
+  const queue = admin.getByRole('form', { name: 'Cấu hình hàng chờ' });
+  await queue.getByLabel('Giờ mở bán (giờ Việt Nam)').fill(vnNow(-1));
+  await queue.getByLabel('Số người mua cùng lúc').fill('1');
+  await queue.getByLabel('Số phút mỗi lượt mua').fill('10');
+  await queue.getByRole('button', { name: 'Lưu cấu hình hàng chờ' }).click();
+  await expect(admin.getByText('Đã lưu cấu hình hàng chờ.')).toBeVisible();
+
+  // bob vào hàng trước và tới lượt; alice vào sau thì phải chờ (mỗi lượt chỉ 1 người mua).
+  const bob = await newPage(browser);
+  await login(bob, 'bob', CUSTOMER_PASSWORD);
+  await bob.goto(`/events/${encodeURIComponent(seatEventId)}`);
+  await bob.getByRole('button', { name: 'Vào hàng chờ' }).click();
+  await expect(bob.getByText('Đã tới lượt bạn!')).toBeVisible({ timeout: 20_000 });
+
+  const alice = await newPage(browser);
+  await login(alice, 'alice', CUSTOMER_PASSWORD);
+  await alice.goto(`/events/${encodeURIComponent(seatEventId)}`);
+  await alice.getByRole('button', { name: 'Vào hàng chờ' }).click();
+  await expect(alice.getByText('Bạn đứng đầu hàng')).toBeVisible({ timeout: 20_000 });
+  await expect(alice.getByRole('form', { name: 'Đặt vé' })).toHaveCount(0);
+  await shot(alice, '17-hang-cho');
+
+  const bobForm = bob.getByRole('form', { name: 'Đặt vé' });
+  await bobForm.getByRole('button', { name: seat('A1') }).click();
+  await bobForm.getByRole('button', { name: seat('A2') }).click();
+  await expect(bobForm.getByText('Ghế đã chọn (2/10)')).toBeVisible();
+  await shot(bob, '16-chon-ghe');
+  await bobForm.getByRole('button', { name: 'Đặt vé' }).click();
+  await expect(bob.getByText(/Lượt mua của bạn đã kết thúc/)).toBeVisible();
+
+  // bob mua xong thì tới lượt alice; ghế bob vừa đặt không chọn được nữa.
+  await expect(alice.getByText('Đã tới lượt bạn!')).toBeVisible({ timeout: 30_000 });
+  const aliceForm = alice.getByRole('form', { name: 'Đặt vé' });
+  await expect(aliceForm.getByRole('img', { name: /^Ghế A1 · .*đã có người đặt/ })).toBeVisible();
+  await aliceForm.getByRole('button', { name: seat('A3') }).click();
+
+  // Ngay lúc đó quản trị viên khóa ghế A3: alice bấm đặt thì bị từ chối, ghế được bỏ khỏi lựa chọn.
+  await admin.getByRole('button', { name: seat('A3') }).click();
+  await admin.getByRole('button', { name: 'Khóa ghế' }).click();
+  await expect(admin.getByText('Đã khóa 1 ghế.')).toBeVisible();
+  await aliceForm.getByRole('button', { name: 'Đặt vé' }).click();
+  await expect(aliceForm.getByText(/Có ghế đang bị khóa|A3 vừa được người khác đặt hoặc ngừng bán/)).toBeVisible();
+  await shot(alice, '18-ghe-vua-bi-khoa');
+
+  await aliceForm.getByRole('button', { name: seat('A4') }).click();
+  await aliceForm.getByRole('button', { name: seat('A5') }).click();
+  await aliceForm.getByRole('button', { name: 'Đặt vé' }).click();
+  await expect(alice.getByText(/ghế A4, A5/)).toBeVisible();
+
+  await admin.getByRole('button', { name: 'Tải lại số người' }).click();
+  await expect(admin.getByText('Đã mua xong', { exact: true }).locator('..')).toContainText('2');
+  await admin.reload();
+  await expect(admin.getByRole('img', { name: /^Ghế A5 · .*đã có người đặt/ })).toBeVisible();
+  await shot(admin, '30-quan-tri-so-do-ghe');
+
+  // Tắt hàng chờ: khách chọn ghế và đặt trực tiếp.
+  const queueForm = admin.getByRole('form', { name: 'Cấu hình hàng chờ' });
+  await queueForm.getByLabel('Bật hàng chờ ảo cho sự kiện này').uncheck();
+  await queueForm.getByRole('button', { name: 'Lưu cấu hình hàng chờ' }).click();
+  await expect(admin.getByText(/Đã tắt hàng chờ/)).toBeVisible();
+
+  await admin.getByRole('link', { name: 'Đơn đặt vé' }).click();
+  await admin.getByLabel('Sự kiện', { exact: true }).selectOption({ label: SEAT_EVENT });
+  await expect(admin.locator('tbody tr')).toHaveCount(2);
+  await expect(admin.locator('tbody tr').filter({ hasText: 'alice' })).toContainText('Ghế A4, A5');
+});
+
+test('6. giao diện điện thoại và chế độ tối', async ({ browser }) => {
   const page = await newPage(browser, {
     viewport: { width: 390, height: 844 },
     locale: 'vi-VN',
@@ -258,6 +377,14 @@ test('5. giao diện điện thoại và chế độ tối', async ({ browser })
   await expect(page.getByRole('form', { name: 'Đặt vé' })).toBeVisible();
   await shot(page, '13-dien-thoai-chi-tiet');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await page.goto(`/events/${encodeURIComponent(seatEventId)}`);
+  await expect(page.getByRole('group', { name: /Sơ đồ ghế/ })).toBeVisible();
+  await page.getByRole('button', { name: seat('C6') }).click();
+  await shot(page, '19-dien-thoai-so-do-ghe');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await page.goto('/my-tickets');
+  await expect(page.locator('.ticket').first()).toBeVisible();
+  await shot(page, '07b-dien-thoai-ve-cua-toi', false);
   await page.context().close();
 
   const darkPage = await newPage(browser, {

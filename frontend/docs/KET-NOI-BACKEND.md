@@ -43,12 +43,16 @@ Backend giả có thêm `bob`, `carol` (cùng mật khẩu khách) để thử q
 |---|---|
 | Đăng nhập (chung) | `POST /api/auth/login`, `GET /api/me` (kiểm tra phiên khi tải lại trang) |
 | Danh sách sự kiện | `GET /api/events/categories` (nút lọc), `GET /api/events?category=&page=&limit=` |
-| Chi tiết + đặt vé | `GET /api/events/:id`, `POST /api/orders` kèm header `Idempotency-Key` |
+| Chi tiết + đặt vé | `GET /api/events/:id`, `POST /api/orders` kèm header `Idempotency-Key` (vé thường gửi `quantity`, vé chọn ghế gửi `seatIds`) |
+| Chọn ghế | `GET /api/events/:id/seat-map` (một lần, có ETag), `GET /api/events/:id/seats/status` (mỗi 8 giây và ngay sau khi bị từ chối ghế) |
+| Hàng chờ ảo | `GET /api/events/:id/queue/me` (khi mở trang và theo `retryAfterSeconds`), `POST /api/events/:id/queue` (Vào hàng), `DELETE /api/events/:id/queue/me` (Rời hàng) |
 | Vé của tôi | `GET /api/orders?status=&page=` |
 | Chi tiết đơn + hủy | `GET /api/orders/:id`, `POST /api/orders/:id/cancel` (kèm lý do) |
 | Quản trị: danh sách sự kiện | `GET /api/admin/events?status=&includePast=&page=` (thấy cả bản nháp và sự kiện đã hủy) |
 | Quản trị: tạo/sửa/hủy sự kiện | `POST /api/admin/events`, `GET /api/admin/events/:id`, `PATCH /api/admin/events/:id` |
-| Quản trị: hạng vé | `POST /api/admin/events/:id/ticket-types`, `PATCH /api/admin/ticket-types/:id` |
+| Quản trị: hạng vé | `POST /api/admin/events/:id/ticket-types`, `PATCH /api/admin/ticket-types/:id` (kèm `seating`: `GENERAL` / `ASSIGNED`) |
+| Quản trị: sơ đồ ghế | `GET /api/admin/events/:id/seat-map`, `GET /api/admin/events/:id/seats/status`, `PUT /api/admin/events/:id/seat-map` (kèm `version`), `PATCH /api/admin/events/:id/seats` (khóa/mở ghế), `POST /api/admin/events/:id/seat-map/copy-from/:sourceId` |
+| Quản trị: hàng chờ | `GET` / `PUT /api/admin/events/:id/queue`, `POST /api/admin/events/:id/queue/tick` (nút "Chạy một nhịp") |
 | Quản trị: tra cứu đơn | `GET /api/admin/orders?eventId=&status=&page=` (kèm `summary`), `GET /api/admin/orders/:id`, `POST /api/admin/orders/:id/cancel` |
 | Quản trị: thống kê | `GET /api/admin/stats/daily?from=&to=`, `GET /api/admin/stats/events?from=&to=` |
 
@@ -79,6 +83,18 @@ Frontend hiển thị nguyên văn `error.message` của backend, trừ vài tr�
 | `QUANTITY_BELOW_RESERVED` | Sửa hạng vé | Câu của backend + "Tối thiểu N vé" dưới ô số lượng (`details.reserved`) |
 | `TICKET_TYPE_NAME_TAKEN` | Hạng vé | "Sự kiện đã có hạng vé cùng tên" dưới ô tên |
 | `EVENT_CANCELLED` | Sửa sự kiện | Câu của backend; form của sự kiện đã hủy bị khóa |
+| `SEAT_TAKEN`, `SEAT_BLOCKED` | Đặt ghế | Câu của backend ("Ghế A3 vừa có người đặt…"), bỏ các ghế trong `details.seatIds` khỏi lựa chọn, tải lại trạng thái ghế. Lần hỏi định kỳ thấy ghế đang chọn vừa bán hoặc bị khóa cũng tự bỏ ra và báo |
+| `SEATS_NOT_FOUND` | Đặt ghế | Sơ đồ đã đổi: bỏ lựa chọn, tải lại sơ đồ |
+| `SALE_NOT_STARTED`, `QUEUE_ADMISSION_REQUIRED` | Đặt vé (sự kiện có hàng chờ) | Quay lại trang chờ, báo lượt mua không còn hiệu lực |
+| `QUEUE_ENTRY_NOT_FOUND` | Trang chờ | Chưa vào hàng: hiện nút "Vào hàng chờ" |
+| `QUEUE_NOT_ENABLED` | Trang chờ | Quản trị viên vừa tắt hàng chờ: hiện form đặt vé luôn |
+| `SEAT_MAP_VERSION_CONFLICT` | Lưu sơ đồ | "Sơ đồ vừa bị người khác sửa", tải lại bản mới nhất |
+| `VALIDATION_ERROR` khi lưu sơ đồ | Lưu sơ đồ | Liệt kê từng lỗi trong `details` (ghế chồng nhau, ngoài khung, trùng nhãn) |
+| `SEAT_SOLD_LOCKED` | Lưu sơ đồ, khóa ghế | Liệt kê ghế đã bán bị xóa/đổi hạng/khóa (`details.seats`) |
+| `INVALID_SEAT_TICKET_TYPE` | Lưu sơ đồ | Nhắc chỉ gán ghế cho hạng "Chọn ghế trên sơ đồ" của sự kiện này |
+| `TICKET_TYPE_MAPPING_FAILED` | Chép sơ đồ | Liệt kê tên hạng vé còn thiếu (`details.missing`) |
+| `SEAT_MANAGED_QUANTITY`, `TICKET_TYPE_HAS_ORDERS`, `TICKET_TYPE_HAS_SEATS` | Hạng vé | Lỗi dưới ô số lượng / ô cách bán |
+| `QUEUE_ALREADY_STARTED` | Cấu hình hàng chờ | Lỗi dưới ô giờ mở bán. Ô này bị khóa sẵn khi đã mở bán, và form gửi lại nguyên giờ cũ khi chỉ sửa các ô khác |
 | `STATS_*` (502/503/504) | Thống kê | Lần đầu: báo lỗi kèm nút Thử lại. Khi tải lại: giữ số liệu cũ và hiện cảnh báo |
 | `stale: true` trong phản hồi thống kê | Thống kê | Báo Azure không phản hồi, số liệu là bản lưu tạm |
 
@@ -90,3 +106,13 @@ Phần này làm sau, khi đã chốt bản chạy trên máy.
 2. **Frontend**: build image bằng `Dockerfile`, triển khai với biến `API_BASE_URL=https://ticket-api-5iqotxgmrq-as.a.run.app`.
 3. **CORS**: `CORS_ORIGIN` của backend phải chứa đúng URL frontend. Hiện đã có `https://ticket-web-5iqotxgmrq-as.a.run.app` và `https://ticket-admin-5iqotxgmrq-as.a.run.app`, nên chỉ cần triển khai frontend vào một trong hai service này.
 4. Chạy lại kịch bản kiểm thử trên URL thật: `E2E_BASE_URL=<URL frontend> E2E_MODE=api npm run e2e` (cần tài khoản `alice`, `bob`, `admin1` trên DB cloud, hoặc đặt `E2E_CUSTOMER_PASSWORD`, `E2E_ADMIN_PASSWORD`).
+
+## 6. Sơ đồ ghế và hàng chờ ảo
+
+Thiết kế phía backend: [`GHE-VA-HANG-CHO.md`](../../cloud-backend/docs/GHE-VA-HANG-CHO.md). Frontend làm theo mục 5 của tài liệu đó:
+
+- **Sơ đồ** vẽ bằng SVG theo tọa độ backend trả về ([`SeatMap.tsx`](../src/components/SeatMap.tsx)), không cần thư viện. Màu ghế theo hạng vé, hạng đắt nhất nhận màu 1 của bảng màu phân loại đã kiểm tra mù màu; ghế đã bán có dấu ×, ghế khóa có viền đứt, ghế đang chọn có dấu ✓, nên không phân biệt chỉ bằng màu. Mỗi ghế đọc được bằng trình đọc màn hình ("Ghế A3 · Hạng A · 1.500.000 ₫ · còn trống") và chọn được bằng bàn phím.
+- **Chọn ghế**: chỉ ghế cùng một hạng trong một đơn (bấm ghế hạng khác thì chuyển hạng), tối đa 10 ghế. Khóa chống đặt trùng tính theo hạng vé và tập ghế.
+- **Hàng chờ** ([`QueueGate.tsx`](../src/pages/customer/QueueGate.tsx)): đếm ngược theo giờ máy chủ (`serverTime`), hỏi lại theo `retryAfterSeconds`, dừng khi backend trả `null`. Hết giờ mua hoặc tới giờ mở bán thì hỏi lại ngay. Mất mạng tạm thời thì thử lại sau 5 giây, giữ nguyên màn hình.
+- **Quản trị** ([`SeatMapManager.tsx`](../src/pages/admin/SeatMapManager.tsx)): tạo nhanh từ mẫu ([`seatLayouts.ts`](../src/lib/seatLayouts.ts), cùng công thức nhà hát với `cloud-backend/src/seating/theater.ts`), nhập/xuất file JSON đúng mẫu body của `PUT seat-map`, xem trước rồi mới lưu.
+- Backend giả có đủ các API trên. Hai sự kiện mẫu: `ev-108` (nhà hát 367 ghế, hàng chờ mở bán 2 phút sau khi tạo dữ liệu, có 6 người xếp hàng giả mua xong sau 20 giây) và `ev-109` (ghế thẳng, đặt ngay).

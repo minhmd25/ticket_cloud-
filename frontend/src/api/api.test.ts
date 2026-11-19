@@ -7,6 +7,7 @@ import { DEMO_PASSWORDS } from './mock/db';
 import { clearSession, onUnauthorized, setSession } from '../auth/session';
 import { addDays, vnDayKey } from '../lib/dates';
 import { loginAs } from '../test/utils';
+import { buildGridLayout } from '../lib/seatLayouts';
 
 async function expectApiError(promise: Promise<unknown>, status: number, code: string) {
   const error = await promise.then(
@@ -22,6 +23,16 @@ const ticket = async (eventId: string, ticketTypeId: string) =>
   (await api.getEvent(eventId)).ticketTypes.find((t) => t.id === ticketTypeId)!;
 
 const inDays = (days: number, hours = 0) => new Date(Date.now() + days * 86_400_000 + hours * 3_600_000).toISOString();
+
+const newEvent = () => ({
+  title: 'Sự kiện thử',
+  category: 'concert',
+  description: 'Mô tả',
+  venue: 'Hà Nội',
+  startTime: inDays(3),
+  endTime: inDays(3, 2),
+  status: 'PUBLISHED' as const,
+});
 
 describe('đăng nhập', () => {
   it('trả token và vai trò khi đúng tài khoản', async () => {
@@ -65,7 +76,7 @@ describe('sự kiện', () => {
   it('trả danh sách theo trang, chỉ gồm sự kiện đang mở bán', async () => {
     const page = await api.listEvents({ limit: 2 });
     expect(page.data).toHaveLength(2);
-    expect(page.pagination).toMatchObject({ page: 1, limit: 2, total: 6, totalPages: 3 });
+    expect(page.pagination).toMatchObject({ page: 1, limit: 2, total: 8, totalPages: 4 });
     const all = await api.listEvents({ limit: 100 });
     expect(all.data.every((e) => e.status === 'PUBLISHED')).toBe(true);
     expect(all.data.some((e) => e.title.includes('Lễ hội'))).toBe(false); // bản nháp
@@ -161,15 +172,6 @@ describe('đặt và hủy vé', () => {
 });
 
 describe('quản trị', () => {
-  const newEvent = () => ({
-    title: 'Sự kiện thử',
-    category: 'concert',
-    description: 'Mô tả',
-    venue: 'Hà Nội',
-    startTime: inDays(3),
-    endTime: inDays(3, 2),
-    status: 'PUBLISHED' as const,
-  });
 
   it('khách gọi API quản trị → 403', async () => {
     await loginAs('alice');
@@ -258,5 +260,138 @@ describe('quản trị', () => {
     expect(after.totals.netRevenue).toBe(before.totals.netRevenue);
     const byEvent = await api.admin.statsByEvent(query);
     expect(byEvent.items.find((i) => i.key === 'ev-101')?.eventTitle).toBe('Đêm nhạc Mùa Thu Hà Nội');
+  });
+});
+
+const seatIdsOf = async (eventId: string, labels: string[]) => {
+  const map = await api.getSeatMap(eventId);
+  return labels.map((l) => map.seats.find((s) => s.label === l)!.id);
+};
+
+describe('sơ đồ ghế và đặt ghế', () => {
+  it('đọc sơ đồ và trạng thái ghế, đặt ghế, hủy thì trả ghế', async () => {
+    const ev = await api.getEvent('ev-109');
+    expect(ev.seatMap).toEqual({ version: 1 });
+    expect(ev.queue).toBeNull();
+    expect(ev.ticketTypes.every((t) => t.seating === 'ASSIGNED')).toBe(true);
+    const map = await api.getSeatMap('ev-109');
+    expect(map.seats).toHaveLength(8 * 16);
+    const [a7] = await seatIdsOf('ev-109', ['A7']);
+    expect((await api.getSeatStatus('ev-109')).sold).toContain(a7);
+
+    await loginAs('alice');
+    const before = await ticket('ev-109', 'tt-1091');
+    const ids = await seatIdsOf('ev-109', ['A2', 'A1']);
+    const order = await api.createOrder({ ticketTypeId: 'tt-1091', seatIds: ids });
+    expect(order.quantity).toBe(2);
+    expect(order.seats.map((s) => s.label).sort()).toEqual(['A1', 'A2']);
+    expect((await ticket('ev-109', 'tt-1091')).availableQuantity).toBe(before.availableQuantity - 2);
+    expect((await api.getSeatStatus('ev-109')).sold).toEqual(expect.arrayContaining(ids));
+
+    await api.cancelOrder(order.id);
+    const status = await api.getSeatStatus('ev-109');
+    expect(status.sold).not.toContain(ids[0]);
+    expect((await api.getOrder(order.id)).seats).toHaveLength(2); // đơn đã hủy vẫn giữ lịch sử ghế
+  });
+
+  it('từ chối ghế đã bán, ghế khác hạng, thiếu ghế và ghế cho vé thường', async () => {
+    await loginAs('alice');
+    const [a7, a3, d1] = await seatIdsOf('ev-109', ['A7', 'A3', 'D1']);
+    const taken = await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', seatIds: [a3, a7] }), 409, 'SEAT_TAKEN');
+    expect(taken.details).toMatchObject({ seatIds: [a7], labels: ['A7'] });
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', seatIds: [d1] }), 422, 'SEAT_TICKET_TYPE_MISMATCH');
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', quantity: 1 }), 422, 'SEATS_REQUIRED');
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1012', seatIds: [a3] }), 422, 'SEATS_NOT_ALLOWED');
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', seatIds: [a3, a3] }), 400, 'VALIDATION_ERROR');
+    const many = (await api.getSeatMap('ev-109')).seats.filter((s) => s.row === 'C').slice(0, 11).map((s) => s.id);
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', seatIds: many }), 422, 'QUANTITY_EXCEEDS_LIMIT');
+    // Bấm lại cùng khóa và cùng tập ghế: trả đơn cũ; khóa đó với ghế khác: từ chối.
+    const first = await api.createOrder({ ticketTypeId: 'tt-1091', seatIds: [a3] }, 'ghe-1');
+    const again = await api.createOrder({ ticketTypeId: 'tt-1091', seatIds: [a3] }, 'ghe-1');
+    expect(again.id).toBe(first.id);
+    await expectApiError(api.createOrder({ ticketTypeId: 'tt-1091', seatIds: many.slice(0, 1) }, 'ghe-1'), 422, 'IDEMPOTENCY_KEY_REUSED');
+  });
+
+  it('quản trị: hạng chọn ghế, lưu sơ đồ, xung đột phiên bản, khóa ghế, ghế đã bán', async () => {
+    await loginAs('admin1');
+    const ev = await api.admin.createEvent(newEvent());
+    const tier = await api.admin.createTicketType(ev.id, { name: 'Hạng A', price: 500_000, seating: 'ASSIGNED' });
+    expect(tier).toMatchObject({ seating: 'ASSIGNED', totalQuantity: 0 });
+    const layout = buildGridLayout([{ ticketTypeId: tier.id, rows: 2 }], 10);
+    const saved = await api.admin.saveSeatMap(ev.id, { version: 0, ...layout });
+    expect(saved.version).toBe(1);
+    expect((await api.admin.getEvent(ev.id)).ticketTypes[0].totalQuantity).toBe(20);
+    await expectApiError(api.admin.saveSeatMap(ev.id, { version: 0, ...layout }), 409, 'SEAT_MAP_VERSION_CONFLICT');
+    await expectApiError(api.admin.updateTicketType(tier.id, { totalQuantity: 5 }), 409, 'SEAT_MANAGED_QUANTITY');
+
+    const overlap = { ...layout, seats: [...layout.seats, { ...layout.seats[0], label: 'Z1' }] };
+    const invalid = await expectApiError(api.admin.saveSeatMap(ev.id, { version: 1, ...overlap }), 400, 'VALIDATION_ERROR');
+    expect(JSON.stringify(invalid.details)).toContain('chồng lên');
+
+    const ids = saved.seats.slice(0, 2).map((s) => s.id);
+    expect(await api.admin.setSeatsBlocked(ev.id, ids, true)).toEqual({ version: 2, changed: 2 });
+    expect((await api.admin.getEvent(ev.id)).ticketTypes[0].totalQuantity).toBe(18);
+
+    await loginAs('alice');
+    const seat = saved.seats[5];
+    await api.createOrder({ ticketTypeId: tier.id, seatIds: [seat.id] });
+    await loginAs('admin1');
+    await expectApiError(api.admin.setSeatsBlocked(ev.id, [seat.id], true), 409, 'SEAT_SOLD_LOCKED');
+    const withoutSold = { ...layout, seats: layout.seats.filter((s) => s.label !== seat.label) };
+    const locked = await expectApiError(api.admin.saveSeatMap(ev.id, { version: 2, ...withoutSold }), 409, 'SEAT_SOLD_LOCKED');
+    expect(locked.details).toMatchObject({ seats: [{ label: seat.label }] });
+
+    const other = await api.admin.createEvent(newEvent());
+    const mapping = await expectApiError(api.admin.copySeatMap(other.id, ev.id, 0), 422, 'TICKET_TYPE_MAPPING_FAILED');
+    expect(mapping.details).toEqual({ missing: ['Hạng A'] });
+    await api.admin.createTicketType(other.id, { name: 'Hạng A', price: 1, seating: 'ASSIGNED' });
+    expect((await api.admin.copySeatMap(other.id, ev.id, 0)).seats).toHaveLength(20);
+  });
+});
+
+describe('hàng chờ ảo', () => {
+  it('chưa mở bán thì chờ; mở bán thì lần lượt vào mua; đặt xong thì kết thúc lượt', async () => {
+    await loginAs('admin1');
+    const ev = await api.admin.createEvent(newEvent());
+    const tt = await api.admin.createTicketType(ev.id, { name: 'Thường', price: 100_000, totalQuantity: 50 });
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    await api.admin.saveQueue(ev.id, { enabled: true, saleStartAt: later, maxActive: 1, accessMinutes: 10 });
+    expect((await api.getEvent(ev.id)).queue).toMatchObject({ enabled: true, maxActive: 1 });
+
+    await loginAs('alice');
+    await expectApiError(api.getMyQueue(ev.id), 404, 'QUEUE_ENTRY_NOT_FOUND');
+    const waiting = await api.joinQueue(ev.id);
+    expect(waiting).toMatchObject({ status: 'WAITING', position: null, saleStarted: false, retryAfterSeconds: 30 });
+    await expectApiError(api.createOrder({ ticketTypeId: tt.id, quantity: 1 }), 409, 'SALE_NOT_STARTED');
+
+    // Admin dời giờ mở bán về quá khứ (chưa mở bán nên vẫn đổi được).
+    await loginAs('admin1');
+    await api.admin.saveQueue(ev.id, { enabled: true, saleStartAt: new Date(Date.now() - 60_000).toISOString(), maxActive: 1, accessMinutes: 10 });
+
+    await loginAs('bob');
+    const bob = await api.joinQueue(ev.id);
+    expect(bob).toMatchObject({ status: 'WAITING', position: 2, aheadOfYou: 0 });
+    const denied = await expectApiError(api.createOrder({ ticketTypeId: tt.id, quantity: 1 }), 409, 'QUEUE_ADMISSION_REQUIRED');
+    expect(denied.details).toEqual({ queueStatus: 'WAITING' });
+
+    await loginAs('alice');
+    const admitted = await api.getMyQueue(ev.id);
+    expect(admitted).toMatchObject({ status: 'ADMITTED', position: 1 });
+    expect(Date.parse(admitted.expiresAt!) - Date.parse(admitted.serverTime)).toBeGreaterThan(9 * 60_000);
+    await api.createOrder({ ticketTypeId: tt.id, quantity: 2 });
+    expect(await api.getMyQueue(ev.id)).toMatchObject({ status: 'COMPLETED', retryAfterSeconds: null });
+
+    await loginAs('bob');
+    expect((await api.getMyQueue(ev.id)).status).toBe('ADMITTED');
+    await loginAs('admin1');
+    expect((await api.admin.getQueue(ev.id)).counts).toEqual({ COMPLETED: 1, ADMITTED: 1 });
+    await expectApiError(
+      api.admin.saveQueue(ev.id, { enabled: true, saleStartAt: later, maxActive: 1, accessMinutes: 10 }),
+      409,
+      'QUEUE_ALREADY_STARTED',
+    );
+    await loginAs('bob');
+    expect((await api.leaveQueue(ev.id)).status).toBe('LEFT');
+    await expectApiError(api.joinQueue('ev-101'), 409, 'QUEUE_NOT_ENABLED');
   });
 });

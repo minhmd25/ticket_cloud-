@@ -216,3 +216,91 @@ describe('tra cứu đơn và thống kê', () => {
     expect(await screen.findByText('Không lấy được số liệu thống kê')).toBeInTheDocument();
   });
 });
+
+describe('sơ đồ ghế và hàng chờ (quản trị)', () => {
+  const newEvent = () => ({
+    title: 'Hòa nhạc thử sơ đồ',
+    category: 'concert',
+    description: '',
+    venue: 'Nhà hát',
+    startTime: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+    endTime: new Date(Date.now() + 5 * 86_400_000 + 7_200_000).toISOString(),
+    status: 'PUBLISHED' as const,
+  });
+
+  it('thêm hạng chọn ghế, tạo nhanh sơ đồ lưới, lưu và khóa ghế', async () => {
+    await loginAs('admin1');
+    const ev = await api.admin.createEvent(newEvent());
+    const { user } = renderApp(`/admin/events/${ev.id}/edit`);
+    expect(await screen.findByText(/Sự kiện chưa có hạng vé bán theo ghế/)).toBeInTheDocument();
+
+    const addForm = screen.getByRole('form', { name: 'Thêm hạng vé' });
+    await user.type(within(addForm).getByLabelText('Tên hạng vé'), 'Hạng A');
+    await user.type(within(addForm).getByLabelText('Giá (VND)'), '500000');
+    await user.selectOptions(within(addForm).getByLabelText('Cách bán'), 'ASSIGNED');
+    expect(within(addForm).getByLabelText('Số lượng bán')).toBeDisabled();
+    await user.click(within(addForm).getByRole('button', { name: 'Thêm hạng vé' }));
+    expect(await screen.findByText(/Sự kiện chưa có sơ đồ ghế/)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Mẫu sơ đồ'), 'grid');
+    await user.clear(screen.getByLabelText('Số ghế mỗi hàng'));
+    await user.type(screen.getByLabelText('Số ghế mỗi hàng'), '10');
+    const rows = screen.getByLabelText('Hạng A');
+    await user.clear(rows);
+    await user.type(rows, '2');
+    await user.click(screen.getByRole('button', { name: 'Xem trước sơ đồ' }));
+    expect(await screen.findByText('Bản xem trước')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Lưu sơ đồ' }));
+    expect(await screen.findByText(/Đã lưu sơ đồ 20 ghế/)).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Các hạng vé của sự kiện' });
+    await waitFor(() => expect(within(table).getByRole('row', { name: /Hạng A/ })).toHaveTextContent('20'));
+
+    await user.click(await screen.findByRole('button', { name: /^Ghế A1 ·/ }));
+    await user.click(screen.getByRole('button', { name: /^Ghế A2 ·/ }));
+    await user.click(screen.getByRole('button', { name: 'Khóa ghế' }));
+    expect(await screen.findByText('Đã khóa 2 ghế.')).toBeInTheDocument();
+    await waitFor(() => expect(within(table).getByRole('row', { name: /Hạng A/ })).toHaveTextContent('18'));
+  });
+
+  it('báo lỗi từng ghế khi file JSON có ghế chồng nhau', async () => {
+    await loginAs('admin1');
+    const ev = await api.admin.createEvent(newEvent());
+    const tier = await api.admin.createTicketType(ev.id, { name: 'Hạng A', price: 1, seating: 'ASSIGNED' });
+    const { user } = renderApp(`/admin/events/${ev.id}/edit`);
+    await user.click(await screen.findByRole('button', { name: 'Nhập file JSON' }));
+    const json = {
+      width: 400,
+      height: 300,
+      sections: [],
+      decorations: [],
+      seats: [
+        { label: 'A1', ticketTypeId: tier.id, x: 100, y: 100, rotation: 0 },
+        { label: 'A2', ticketTypeId: tier.id, x: 110, y: 100, rotation: 0 },
+      ],
+    };
+    fireEvent.change(screen.getByLabelText('Hoặc dán nội dung JSON'), { target: { value: JSON.stringify(json) } });
+    await user.click(screen.getByRole('button', { name: 'Xem trước sơ đồ' }));
+    await user.click(await screen.findByRole('button', { name: 'Lưu sơ đồ' }));
+    expect(await screen.findByText('Sơ đồ chưa hợp lệ:')).toBeInTheDocument();
+    expect(screen.getByText('Ghế "A2" chồng lên ghế "A1"')).toBeInTheDocument();
+  });
+
+  it('bật hàng chờ, xem số người theo trạng thái và chạy một nhịp', async () => {
+    await loginAs('admin1');
+    const { user } = renderApp('/admin/events/ev-108/edit');
+    const form = await screen.findByRole('form', { name: 'Cấu hình hàng chờ' });
+    expect(within(form).getByLabelText('Bật hàng chờ ảo cho sự kiện này')).toBeChecked();
+    expect(screen.getByText('Đang chờ').previousSibling).toHaveTextContent('6');
+    await user.clear(within(form).getByLabelText('Số người mua cùng lúc'));
+    await user.type(within(form).getByLabelText('Số người mua cùng lúc'), '0');
+    await user.click(within(form).getByRole('button', { name: 'Lưu cấu hình hàng chờ' }));
+    expect(within(form).getByText('Từ 1 đến 10.000 người.')).toBeInTheDocument();
+    await user.clear(within(form).getByLabelText('Số người mua cùng lúc'));
+    await user.type(within(form).getByLabelText('Số người mua cùng lúc'), '3');
+    await user.click(within(form).getByRole('button', { name: 'Lưu cấu hình hàng chờ' }));
+    expect(await screen.findByText('Đã lưu cấu hình hàng chờ.')).toBeInTheDocument();
+    expect(loadDb().queueSettings.find((x) => x.eventId === 'ev-108')!.maxActive).toBe(3);
+    await user.click(within(form).getByRole('button', { name: /Chạy một nhịp/ }));
+    expect(await screen.findByText(/Đã chạy một nhịp/)).toBeInTheDocument();
+  });
+});

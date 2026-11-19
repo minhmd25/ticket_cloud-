@@ -3,8 +3,8 @@
 // Dùng khi chạy demo không có backend và trong bộ kiểm thử giao diện.
 import { config } from '../../config';
 import { addDays, vnDayKey } from '../../lib/dates';
-import { loadDb, makeUuid, resetMockDb, RULES, saveDb } from './db';
-import type { DbEvent, DbOrder, DbTicketType, DbUser, MockDb } from './db';
+import { DEMO_QUEUE_PREFIX, DEMO_QUEUE_PURCHASE_SECONDS, loadDb, makeUuid, resetMockDb, RULES, saveDb } from './db';
+import type { DbEvent, DbOrder, DbQueueEntry, DbQueueSettings, DbSeat, DbSeatMap, DbTicketType, DbUser, MockDb } from './db';
 
 /** Điều khiển backend giả từ giao diện (chân trang) và từ test. */
 export const mockControls = {
@@ -104,6 +104,7 @@ function toTicketType(t: DbTicketType) {
     name: t.name,
     description: t.description,
     price: t.price,
+    seating: t.seating,
     totalQuantity: t.totalQuantity,
     availableQuantity: t.availableQuantity,
     reservedQuantity: t.totalQuantity - t.availableQuantity,
@@ -133,7 +134,14 @@ function toEventSummary(db: MockDb, e: DbEvent) {
 }
 
 function toEventDetail(db: MockDb, e: DbEvent) {
-  return { ...toEvent(e), ticketTypes: ticketTypesOf(db, e.id).map(toTicketType) };
+  const map = db.seatMaps.find((m) => m.eventId === e.id);
+  const q = db.queueSettings.find((x) => x.eventId === e.id);
+  return {
+    ...toEvent(e),
+    ticketTypes: ticketTypesOf(db, e.id).map(toTicketType),
+    seatMap: map ? { version: map.version } : null,
+    queue: q ? { enabled: q.enabled, saleStartAt: q.saleStartAt, maxActive: q.maxActive, accessMinutes: q.accessMinutes } : null,
+  };
 }
 
 function deadlineOf(e: DbEvent) {
@@ -154,6 +162,7 @@ function toOrder(db: MockDb, o: DbOrder, now: Date) {
     currency: 'VND',
     event: { id: e.id, title: e.title, category: e.category, venue: e.venue, startTime: e.startTime, status: e.status },
     ticketType: { id: t.id, name: t.name },
+    seats: seatsOfOrder(db, o),
     createdAt: o.createdAt,
     cancelledAt: o.cancelledAt,
     cancelledBy: o.cancelledBy,
@@ -164,6 +173,11 @@ function toOrder(db: MockDb, o: DbOrder, now: Date) {
 }
 
 const byNewest = (a: DbOrder, b: DbOrder) => b.createdAt.localeCompare(a.createdAt);
+
+function seatsOfOrder(db: MockDb, o: DbOrder) {
+  const map = db.seatMaps.find((m) => m.eventId === o.eventId);
+  return o.seatIds.map((id) => ({ id, label: map?.seats.find((s) => s.id === id)?.label ?? '?' }));
+}
 
 // ---------- Kiểm tra dữ liệu ----------
 
@@ -207,7 +221,10 @@ function checkTicketFields(body: Record<string, unknown>, partial: boolean, issu
     if (typeof price !== 'number' || !Number.isFinite(price)) issues.push({ path: 'price', message: 'Giá phải là số' });
     else if (price < 0) issues.push({ path: 'price', message: 'Giá không được âm' });
   }
-  if (!partial || has('totalQuantity')) {
+  if (has('seating') && body.seating !== 'GENERAL' && body.seating !== 'ASSIGNED')
+    issues.push({ path: 'seating', message: 'seating phải là GENERAL hoặc ASSIGNED' });
+  const assigned = body.seating === 'ASSIGNED';
+  if (has('totalQuantity') || (!partial && !assigned)) {
     if (!isInt(body.totalQuantity, 0)) issues.push({ path: 'totalQuantity', message: 'Số lượng phải là số nguyên không âm' });
   }
 }
@@ -293,10 +310,19 @@ route('POST', '/api/orders', 'user', ({ db, body, headers, user, now }) => {
   const issues: Issue[] = [];
   if (typeof body.ticketTypeId !== 'string' || !body.ticketTypeId)
     issues.push({ path: 'ticketTypeId', message: 'Định danh phải là UUID hợp lệ' });
-  if (!isInt(body.quantity, 1)) issues.push({ path: 'quantity', message: 'Số lượng phải >= 1' });
+  const hasSeats = 'seatIds' in body && body.seatIds !== undefined;
+  const seatIds = hasSeats && Array.isArray(body.seatIds) ? (body.seatIds as unknown[]) : [];
+  if (hasSeats) {
+    if (!Array.isArray(body.seatIds) || seatIds.length === 0 || seatIds.some((x) => typeof x !== 'string'))
+      issues.push({ path: 'seatIds', message: 'seatIds phải là danh sách ghế, không rỗng' });
+    else if (new Set(seatIds).size !== seatIds.length) issues.push({ path: 'seatIds', message: 'Có ghế bị lặp' });
+    if ('quantity' in body && body.quantity !== seatIds.length)
+      issues.push({ path: 'quantity', message: 'quantity phải bằng số ghế' });
+  } else if (!isInt(body.quantity, 1)) issues.push({ path: 'quantity', message: 'Số lượng phải >= 1' });
   invalid(issues);
-  const quantity = body.quantity as number;
   const ticketTypeId = body.ticketTypeId as string;
+  const quantity = hasSeats ? seatIds.length : (body.quantity as number);
+  const wanted = (seatIds as string[]).slice().sort();
   if (quantity > RULES.maxTicketsPerOrder)
     fail(422, 'QUANTITY_EXCEEDS_LIMIT', `Mỗi đơn được đặt tối đa ${RULES.maxTicketsPerOrder} vé`, {
       requested: quantity,
@@ -307,8 +333,11 @@ route('POST', '/api/orders', 'user', ({ db, body, headers, user, now }) => {
   if (key) {
     const existing = db.orders.find((o) => o.userId === user!.id && o.idempotencyKey === key);
     if (existing) {
-      if (existing.ticketTypeId !== ticketTypeId || existing.quantity !== quantity)
-        fail(422, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key đã dùng cho một yêu cầu đặt vé khác');
+      const same =
+        existing.ticketTypeId === ticketTypeId &&
+        existing.quantity === quantity &&
+        existing.seatIds.slice().sort().join(',') === wanted.join(',');
+      if (!same) fail(422, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key đã dùng cho một yêu cầu đặt vé khác');
       return ok(toOrder(db, existing, now), 200);
     }
   }
@@ -319,6 +348,13 @@ route('POST', '/api/orders', 'user', ({ db, body, headers, user, now }) => {
   if (e.status === 'CANCELLED') fail(409, 'EVENT_CANCELLED', 'Sự kiện đã bị hủy');
   if (e.status !== 'PUBLISHED') fail(409, 'EVENT_NOT_OPEN', 'Sự kiện chưa mở bán');
   if (new Date(e.startTime) <= now) fail(409, 'EVENT_ALREADY_STARTED', 'Sự kiện đã diễn ra, không thể đặt vé');
+  if (t.seating === 'ASSIGNED' && !hasSeats)
+    fail(422, 'SEATS_REQUIRED', 'Hạng vé này bán theo ghế, hãy chọn ghế (seatIds)');
+  if (t.seating === 'GENERAL' && hasSeats)
+    fail(422, 'SEATS_NOT_ALLOWED', 'Hạng vé này không bán theo ghế, chỉ gửi quantity');
+
+  const entry = checkQueueAdmission(db, e.id, user!.id, now);
+
   if (t.availableQuantity === 0)
     fail(409, 'SOLD_OUT', 'Hạng vé này đã hết', { requested: quantity, available: 0 });
   if (quantity > t.availableQuantity)
@@ -326,6 +362,30 @@ route('POST', '/api/orders', 'user', ({ db, body, headers, user, now }) => {
       requested: quantity,
       available: t.availableQuantity,
     });
+
+  if (hasSeats) {
+    const map = db.seatMaps.find((m) => m.eventId === e.id);
+    const seats = wanted.map((id) => map?.seats.find((x) => x.id === id));
+    const missing = wanted.filter((_, i) => !seats[i]);
+    if (missing.length) fail(422, 'SEATS_NOT_FOUND', 'Có ghế không thuộc sơ đồ của sự kiện này', { seatIds: missing });
+    const found = seats as DbSeat[];
+    const wrong = found.filter((x) => x.ticketTypeId !== t.id);
+    if (wrong.length)
+      fail(422, 'SEAT_TICKET_TYPE_MISMATCH', 'Mỗi đơn chỉ gồm ghế của đúng hạng vé đã chọn', { labels: wrong.map((x) => x.label) });
+    const blocked = found.filter((x) => x.blocked);
+    if (blocked.length)
+      fail(409, 'SEAT_BLOCKED', 'Có ghế đang bị khóa, không bán', {
+        seatIds: blocked.map((x) => x.id),
+        labels: blocked.map((x) => x.label),
+      });
+    const sold = soldSeatIds(db, e.id);
+    const taken = found.filter((x) => sold.has(x.id));
+    if (taken.length)
+      fail(409, 'SEAT_TAKEN', `Ghế ${taken.map((x) => x.label).join(', ')} vừa có người đặt, vui lòng chọn ghế khác`, {
+        seatIds: taken.map((x) => x.id),
+        labels: taken.map((x) => x.label),
+      });
+  }
 
   const order: DbOrder = {
     id: newId(),
@@ -340,10 +400,15 @@ route('POST', '/api/orders', 'user', ({ db, body, headers, user, now }) => {
     cancelledBy: null,
     cancelReason: null,
     idempotencyKey: key,
+    seatIds: wanted,
   };
   t.availableQuantity -= quantity;
   db.orders.push(order);
   recordActivity(db, 'BOOKED', order, order.createdAt);
+  if (entry) {
+    entry.status = 'COMPLETED';
+    entry.finishedAt = now.toISOString();
+  }
   return ok(toOrder(db, order, now), 201);
 });
 
@@ -472,15 +537,20 @@ route('POST', '/api/admin/events/:id/ticket-types', 'admin', ({ db, params, body
   checkTicketFields(body, false, issues);
   invalid(issues);
   const name = text(body.name);
+  const seating = body.seating === 'ASSIGNED' ? 'ASSIGNED' : 'GENERAL';
+  if (seating === 'ASSIGNED' && typeof body.totalQuantity === 'number' && body.totalQuantity > 0)
+    fail(409, 'SEAT_MANAGED_QUANTITY', 'Hạng vé theo ghế: số vé tính theo sơ đồ ghế, sửa sơ đồ thay vì nhập totalQuantity');
   if (nameTaken(db, e.id, name)) fail(409, 'TICKET_TYPE_NAME_TAKEN', 'Sự kiện đã có hạng vé cùng tên');
+  const total = seating === 'ASSIGNED' ? 0 : (body.totalQuantity as number);
   const t: DbTicketType = {
     id: newId(),
     eventId: e.id,
     name,
     description: typeof body.description === 'string' ? body.description : '',
     price: body.price as number,
-    totalQuantity: body.totalQuantity as number,
-    availableQuantity: body.totalQuantity as number,
+    seating,
+    totalQuantity: total,
+    availableQuantity: total,
   };
   db.ticketTypes.push(t);
   return ok(toTicketType(t), 201);
@@ -493,7 +563,18 @@ route('PATCH', '/api/admin/ticket-types/:id', 'admin', ({ db, params, body }) =>
   if (!Object.keys(body).length) issues.push({ path: '', message: 'Cần ít nhất một trường để cập nhật' });
   checkTicketFields(body, true, issues);
   invalid(issues);
-  if ('totalQuantity' in body) {
+  const nextSeating = (body.seating as DbTicketType['seating'] | undefined) ?? t.seating;
+  const changingSeating = nextSeating !== t.seating;
+  if (changingSeating) {
+    if (db.orders.some((o) => o.ticketTypeId === t.id))
+      fail(409, 'TICKET_TYPE_HAS_ORDERS', 'Hạng vé đã có đơn, không đổi được cách bán (theo số lượng / theo ghế)');
+    const seats = db.seatMaps.find((m) => m.eventId === t.eventId)?.seats.filter((x) => x.ticketTypeId === t.id).length ?? 0;
+    if (t.seating === 'ASSIGNED' && seats > 0)
+      fail(409, 'TICKET_TYPE_HAS_SEATS', 'Hạng vé đang có ghế trên sơ đồ, hãy gỡ các ghế này khỏi sơ đồ trước', { seats });
+  }
+  if ('totalQuantity' in body && nextSeating === 'ASSIGNED')
+    fail(409, 'SEAT_MANAGED_QUANTITY', 'Hạng vé theo ghế: số vé tính theo sơ đồ ghế, sửa sơ đồ thay vì nhập totalQuantity');
+  if ('totalQuantity' in body && !changingSeating) {
     const requested = body.totalQuantity as number;
     const reserved = t.totalQuantity - t.availableQuantity;
     if (requested < reserved)
@@ -506,6 +587,11 @@ route('PATCH', '/api/admin/ticket-types/:id', 'admin', ({ db, params, body }) =>
   }
   if ('name' in body && nameTaken(db, t.eventId, text(body.name), t.id))
     fail(409, 'TICKET_TYPE_NAME_TAKEN', 'Sự kiện đã có hạng vé cùng tên');
+  if (changingSeating) {
+    t.seating = nextSeating;
+    t.totalQuantity = 0;
+    t.availableQuantity = 0;
+  }
   if ('totalQuantity' in body) {
     const requested = body.totalQuantity as number;
     t.availableQuantity += requested - t.totalQuantity;
@@ -538,6 +624,449 @@ route('GET', '/api/admin/orders/:id', 'admin', ({ db, params, user, now }) =>
   ok(toOrder(db, findAccessibleOrder(db, params.id, user!), now)),
 );
 route('POST', '/api/admin/orders/:id/cancel', 'admin', handleCancel);
+
+// ---------- Sơ đồ ghế ----------
+
+function soldSeatIds(db: MockDb, eventId: string): Set<string> {
+  return new Set(db.orders.filter((o) => o.eventId === eventId && o.status === 'CONFIRMED').flatMap((o) => o.seatIds));
+}
+
+/** Hạng ASSIGNED: tổng vé = số ghế không bị khóa, còn lại = tổng − số ghế đang được giữ. */
+function recomputeAssigned(db: MockDb, eventId: string) {
+  const map = db.seatMaps.find((m) => m.eventId === eventId);
+  const sold = soldSeatIds(db, eventId);
+  for (const t of db.ticketTypes.filter((x) => x.eventId === eventId && x.seating === 'ASSIGNED')) {
+    const seats = map?.seats.filter((x) => x.ticketTypeId === t.id) ?? [];
+    t.totalQuantity = seats.filter((x) => !x.blocked).length;
+    t.availableQuantity = seats.filter((x) => !x.blocked && !sold.has(x.id)).length;
+  }
+}
+
+const toSeatMap = (m: DbSeatMap) => ({ ...m, seats: m.seats.map((x) => ({ ...x })) });
+
+function findMap(db: MockDb, eventId: string, publicView: boolean) {
+  const e = db.events.find((x) => x.id === eventId);
+  if (!e || (publicView && e.status !== 'PUBLISHED')) fail(404, 'EVENT_NOT_FOUND', 'Không tìm thấy sự kiện');
+  const map = db.seatMaps.find((m) => m.eventId === eventId);
+  if (!map) fail(404, 'SEAT_MAP_NOT_FOUND', 'Không tìm thấy sơ đồ ghế');
+  return { e, map };
+}
+
+function seatStatus(db: MockDb, eventId: string, publicView: boolean) {
+  const { map } = findMap(db, eventId, publicView);
+  return {
+    eventId,
+    version: map.version,
+    sold: [...soldSeatIds(db, eventId)],
+    blocked: map.seats.filter((x) => x.blocked).map((x) => x.id),
+  };
+}
+
+route('GET', '/api/events/:id/seat-map', 'public', ({ db, params }) => ok(toSeatMap(findMap(db, params.id, true).map)));
+route('GET', '/api/events/:id/seats/status', 'public', ({ db, params }) => ok(seatStatus(db, params.id, true)));
+route('GET', '/api/admin/events/:id/seat-map', 'admin', ({ db, params }) => ok(toSeatMap(findMap(db, params.id, false).map)));
+route('GET', '/api/admin/events/:id/seats/status', 'admin', ({ db, params }) => ok(seatStatus(db, params.id, false)));
+
+const SECTION_KEY = /^[A-Za-z0-9_-]{1,50}$/;
+const COLOR = /^#[0-9a-fA-F]{6}$/;
+const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+
+type SeatInput = Omit<DbSeat, 'id'>;
+
+/** Kiểm tra và lưu toàn bộ sơ đồ (dùng cho PUT và chép sơ đồ). */
+function saveSeatMap(db: MockDb, e: DbEvent, body: Record<string, unknown>, now: Date) {
+  if (e.status === 'CANCELLED') fail(409, 'EVENT_CANCELLED', 'Sự kiện đã hủy');
+  const issues: Issue[] = [];
+  if (!isInt(body.version, 0)) issues.push({ path: 'version', message: 'version phải là số nguyên >= 0' });
+  for (const k of ['width', 'height']) {
+    const v = body[k];
+    if (!isInt(v, 100) || (v as number) > 20000) issues.push({ path: k, message: `${k} phải là số nguyên 100–20000` });
+  }
+  const seatSize = body.seatSize === undefined ? 24 : body.seatSize;
+  if (!isNum(seatSize) || (seatSize as number) <= 0 || (seatSize as number) > 500)
+    issues.push({ path: 'seatSize', message: 'seatSize phải > 0 và tối đa 500' });
+  const sections = Array.isArray(body.sections) ? (body.sections as Array<Record<string, unknown>>) : [];
+  if (!Array.isArray(body.sections ?? [])) issues.push({ path: 'sections', message: 'sections phải là danh sách' });
+  if (sections.length > 100) issues.push({ path: 'sections', message: 'Tối đa 100 khu' });
+  const keys = new Set<string>();
+  sections.forEach((sec, i) => {
+    const key = String(sec?.key ?? '');
+    if (!SECTION_KEY.test(key)) issues.push({ path: `sections.${i}.key`, message: 'key chỉ gồm chữ không dấu, số, "-", "_"' });
+    else if (keys.has(key)) issues.push({ path: `sections.${i}.key`, message: `Trùng khu "${key}"` });
+    keys.add(key);
+    if (!text(sec?.name)) issues.push({ path: `sections.${i}.name`, message: 'Tên khu không được trống' });
+    if (sec?.color != null && !COLOR.test(String(sec.color))) issues.push({ path: `sections.${i}.color`, message: 'Màu phải dạng #RRGGBB' });
+  });
+  const rawSeats = Array.isArray(body.seats) ? (body.seats as Array<Record<string, unknown>>) : null;
+  if (!rawSeats) issues.push({ path: 'seats', message: 'seats phải là danh sách' });
+  else if (rawSeats.length > 5000) issues.push({ path: 'seats', message: 'Tối đa 5000 ghế' });
+  const decorations = Array.isArray(body.decorations) ? (body.decorations as Array<Record<string, unknown>>) : [];
+  if (decorations.length > 200) issues.push({ path: 'decorations', message: 'Tối đa 200 hình trang trí' });
+  decorations.forEach((d, i) => {
+    if (!text(d?.type) || String(d.type).length > 30) issues.push({ path: `decorations.${i}.type`, message: 'type 1–30 ký tự' });
+  });
+  invalid(issues.slice(0, 20));
+
+  const width = body.width as number;
+  const height = body.height as number;
+  const size = seatSize as number;
+  const labels = new Set<string>();
+  const seats: SeatInput[] = [];
+  (rawSeats ?? []).forEach((raw, i) => {
+    const label = text(raw?.label);
+    if (!label || label.length > 20) issues.push({ path: `seats.${i}.label`, message: 'Nhãn ghế 1–20 ký tự' });
+    else if (labels.has(label)) issues.push({ path: `seats.${i}.label`, message: `Trùng nhãn ghế "${label}"` });
+    labels.add(label);
+    const section = raw?.section == null ? null : String(raw.section);
+    if (section !== null && !keys.has(section)) issues.push({ path: `seats.${i}.section`, message: `Không có khu "${section}"` });
+    if (!isNum(raw?.x) || !isNum(raw?.y)) issues.push({ path: `seats.${i}`, message: `Ghế "${label}" thiếu tọa độ` });
+    const rotation = raw?.rotation === undefined ? 0 : raw.rotation;
+    if (!isNum(rotation) || Math.abs(rotation as number) > 360) issues.push({ path: `seats.${i}.rotation`, message: 'rotation từ -360 đến 360' });
+    if (typeof raw?.ticketTypeId !== 'string') issues.push({ path: `seats.${i}.ticketTypeId`, message: 'Thiếu hạng vé' });
+    seats.push({
+      label,
+      row: raw?.row == null ? null : String(raw.row),
+      section,
+      ticketTypeId: String(raw?.ticketTypeId ?? ''),
+      x: Number(raw?.x),
+      y: Number(raw?.y),
+      rotation: Number(rotation),
+      accessible: raw?.accessible === true,
+      blocked: raw?.blocked === true,
+    });
+  });
+  // Ghế nằm trọn trong khung và không chồng nhau (khoảng cách tâm < seatSize).
+  const r = size / 2;
+  seats.forEach((st, i) => {
+    if (st.x - r < 0 || st.y - r < 0 || st.x + r > width || st.y + r > height)
+      issues.push({ path: `seats.${i}`, message: `Ghế "${st.label}" nằm ngoài khung sơ đồ` });
+  });
+  const order = seats.map((_, i) => i).sort((a, b) => seats[a].x - seats[b].x);
+  for (let a = 0; a < order.length && issues.length < 20; a++) {
+    for (let b = a + 1; b < order.length; b++) {
+      const p = seats[order[a]];
+      const q = seats[order[b]];
+      if (q.x - p.x >= size) break;
+      if (Math.hypot(q.x - p.x, q.y - p.y) < size - 1e-9) {
+        const [first, second] = order[a] < order[b] ? [p, q] : [q, p];
+        issues.push({ path: `seats.${Math.max(order[a], order[b])}`, message: `Ghế "${second.label}" chồng lên ghế "${first.label}"` });
+      }
+    }
+  }
+  if (issues.length) fail(400, 'VALIDATION_ERROR', 'Sơ đồ ghế không hợp lệ', issues.slice(0, 20));
+
+  const current = db.seatMaps.find((m) => m.eventId === e.id);
+  const currentVersion = current?.version ?? 0;
+  if (body.version !== currentVersion)
+    fail(409, 'SEAT_MAP_VERSION_CONFLICT', 'Sơ đồ đã bị thay đổi bởi người khác, hãy tải lại rồi sửa tiếp', {
+      currentVersion,
+      yourVersion: body.version,
+    });
+  const assigned = new Set(db.ticketTypes.filter((t) => t.eventId === e.id && t.seating === 'ASSIGNED').map((t) => t.id));
+  const badType = seats.filter((st) => !assigned.has(st.ticketTypeId));
+  if (badType.length)
+    fail(422, 'INVALID_SEAT_TICKET_TYPE', 'Ghế chỉ được gán cho hạng vé chọn ghế (ASSIGNED) của chính sự kiện này', {
+      seats: badType.slice(0, 20).map((st) => st.label),
+    });
+  const sold = soldSeatIds(db, e.id);
+  const locked: Array<{ label: string; reason: string }> = [];
+  for (const old of current?.seats.filter((x) => sold.has(x.id)) ?? []) {
+    const next = seats.find((st) => st.label === old.label);
+    if (!next) locked.push({ label: old.label, reason: 'xóa ghế đã bán' });
+    else if (next.ticketTypeId !== old.ticketTypeId) locked.push({ label: old.label, reason: 'đổi hạng ghế đã bán' });
+    else if (next.blocked) locked.push({ label: old.label, reason: 'khóa ghế đã bán' });
+  }
+  if (locked.length)
+    fail(409, 'SEAT_SOLD_LOCKED', 'Không thể xóa, đổi hạng hoặc khóa ghế đã có người đặt', { seats: locked });
+
+  const saved: DbSeatMap = {
+    eventId: e.id,
+    version: currentVersion + 1,
+    width,
+    height,
+    seatSize: size,
+    sections: sections.map((sec) => ({ key: String(sec.key), name: text(sec.name), color: sec.color == null ? null : String(sec.color) })),
+    decorations: decorations.map((d) => ({ ...d, type: String(d.type) })),
+    seats: seats.map((st) => ({ ...st, id: current?.seats.find((x) => x.label === st.label)?.id ?? newId() })),
+    updatedAt: now.toISOString(),
+  };
+  db.seatMaps = db.seatMaps.filter((m) => m.eventId !== e.id).concat(saved);
+  recomputeAssigned(db, e.id);
+  return saved;
+}
+
+route('PUT', '/api/admin/events/:id/seat-map', 'admin', ({ db, params, body, now }) => {
+  const e = db.events.find((x) => x.id === params.id);
+  if (!e) fail(404, 'EVENT_NOT_FOUND', 'Không tìm thấy sự kiện');
+  return ok(toSeatMap(saveSeatMap(db, e, body, now)));
+});
+
+route('POST', '/api/admin/events/:id/seat-map/copy-from/:sourceId', 'admin', ({ db, params, body, now }) => {
+  const e = db.events.find((x) => x.id === params.id);
+  if (!e) fail(404, 'EVENT_NOT_FOUND', 'Không tìm thấy sự kiện');
+  if (params.id === params.sourceId) fail(400, 'VALIDATION_ERROR', 'Không chép sơ đồ từ chính sự kiện này');
+  const src = db.seatMaps.find((m) => m.eventId === params.sourceId);
+  if (!src) fail(404, 'SEAT_MAP_NOT_FOUND', 'Không tìm thấy sơ đồ ghế của sự kiện nguồn');
+  const srcName = new Map(db.ticketTypes.filter((t) => t.eventId === src.eventId).map((t) => [t.id, t.name]));
+  const target = new Map(
+    db.ticketTypes.filter((t) => t.eventId === e.id && t.seating === 'ASSIGNED').map((t) => [t.name.toLowerCase(), t.id]),
+  );
+  const names = [...new Set(src.seats.map((x) => srcName.get(x.ticketTypeId) ?? ''))];
+  const missing = names.filter((n) => !target.has(n.toLowerCase()));
+  if (missing.length)
+    fail(422, 'TICKET_TYPE_MAPPING_FAILED', `Sự kiện này cần có hạng vé chọn ghế cùng tên: ${missing.join(', ')}`, { missing });
+  const input = {
+    version: body.version,
+    width: src.width,
+    height: src.height,
+    seatSize: src.seatSize,
+    sections: src.sections,
+    decorations: src.decorations,
+    seats: src.seats.map(({ id: _id, ...rest }) => ({
+      ...rest,
+      ticketTypeId: target.get((srcName.get(rest.ticketTypeId) ?? '').toLowerCase())!,
+    })),
+  };
+  return ok(toSeatMap(saveSeatMap(db, e, input, now)));
+});
+
+route('PATCH', '/api/admin/events/:id/seats', 'admin', ({ db, params, body }) => {
+  const issues: Issue[] = [];
+  const ids = Array.isArray(body.seatIds) ? (body.seatIds as unknown[]) : null;
+  if (!ids || ids.length === 0 || ids.some((x) => typeof x !== 'string'))
+    issues.push({ path: 'seatIds', message: 'seatIds phải là danh sách ghế, không rỗng' });
+  if (typeof body.blocked !== 'boolean') issues.push({ path: 'blocked', message: 'blocked phải là true hoặc false' });
+  invalid(issues);
+  const { e, map } = findMap(db, params.id, false);
+  if (e.status === 'CANCELLED') fail(409, 'EVENT_CANCELLED', 'Sự kiện đã hủy');
+  const seats = (ids as string[]).map((id) => map.seats.find((x) => x.id === id));
+  const missing = (ids as string[]).filter((_, i) => !seats[i]);
+  if (missing.length) fail(422, 'SEATS_NOT_FOUND', 'Có ghế không thuộc sơ đồ của sự kiện này', { seatIds: missing });
+  const sold = soldSeatIds(db, e.id);
+  const blocked = body.blocked as boolean;
+  const lockedSold = (seats as DbSeat[]).filter((x) => blocked && sold.has(x.id));
+  if (lockedSold.length)
+    fail(409, 'SEAT_SOLD_LOCKED', 'Không khóa được ghế đã có người đặt', {
+      seats: lockedSold.map((x) => ({ label: x.label, reason: 'đã có người đặt' })),
+    });
+  let changed = 0;
+  for (const st of seats as DbSeat[]) {
+    if (st.blocked !== blocked) {
+      st.blocked = blocked;
+      changed++;
+    }
+  }
+  if (changed) {
+    map.version++;
+    recomputeAssigned(db, e.id);
+  }
+  return ok({ version: map.version, changed });
+});
+
+// ---------- Hàng chờ ảo ----------
+
+const isDemoQueueUser = (userId: string) => userId.startsWith(DEMO_QUEUE_PREFIX);
+
+/** Một nhịp của worker hàng chờ (src/queue/worker.ts): xếp ngẫu nhiên, cho hết hạn, cho người kế tiếp vào. */
+function queueTick(db: MockDb, s: DbQueueSettings, now: Date) {
+  const result = { admitted: 0, expired: 0, dropped: 0 };
+  if (!s.enabled || new Date(s.saleStartAt) > now) return result;
+  const nowIso = now.toISOString();
+  const entries = db.queueEntries.filter((x) => x.eventId === s.eventId);
+  if (!s.randomizedAt) {
+    const early = entries.filter((x) => x.status === 'WAITING' && x.position === null);
+    for (let i = early.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [early[i], early[j]] = [early[j], early[i]];
+    }
+    for (const x of early) x.position = ++s.lastPosition;
+    s.randomizedAt = nowIso;
+  }
+  for (const x of entries) {
+    if (isDemoQueueUser(x.userId)) {
+      // Người giả luôn đang mở trang và mua xong sau vài chục giây.
+      if (x.status === 'WAITING') x.lastSeenAt = nowIso;
+      if (x.status === 'ADMITTED' && now.getTime() - new Date(x.admittedAt!).getTime() >= DEMO_QUEUE_PURCHASE_SECONDS * 1000) {
+        x.status = 'COMPLETED';
+        x.finishedAt = nowIso;
+      }
+    }
+    if (x.status === 'ADMITTED' && x.expiresAt && new Date(x.expiresAt) <= now) {
+      x.status = 'EXPIRED';
+      x.finishedAt = nowIso;
+      result.expired++;
+    }
+    if (x.status === 'WAITING' && now.getTime() - new Date(x.lastSeenAt).getTime() > RULES.queueStaleSeconds * 1000) {
+      x.status = 'EXPIRED';
+      x.finishedAt = nowIso;
+      result.dropped++;
+    }
+  }
+  let active = entries.filter((x) => x.status === 'ADMITTED').length;
+  const waiting = entries
+    .filter((x) => x.status === 'WAITING' && x.position !== null)
+    .sort((a, b) => a.position! - b.position!);
+  for (const x of waiting) {
+    if (active >= s.maxActive) break;
+    x.status = 'ADMITTED';
+    x.admittedAt = nowIso;
+    x.expiresAt = new Date(now.getTime() + s.accessMinutes * 60_000).toISOString();
+    active++;
+    result.admitted++;
+  }
+  return result;
+}
+
+function retryAfter(s: DbQueueSettings, x: DbQueueEntry, ahead: number | null, now: Date): number | null {
+  if (!s.enabled) return null;
+  let sec: number;
+  if (x.status === 'WAITING') {
+    const untilSale = (new Date(s.saleStartAt).getTime() - now.getTime()) / 1000;
+    if (untilSale > 0) sec = untilSale > 120 ? 30 : untilSale > 15 ? 10 : 3;
+    else sec = (ahead ?? 0) > 1000 ? 15 : (ahead ?? 0) > 100 ? 10 : 5;
+  } else if (x.status === 'ADMITTED') sec = 30;
+  else return null;
+  return Math.max(2, Math.min(sec, Math.floor(RULES.queueStaleSeconds / 3)));
+}
+
+function toQueueEntry(db: MockDb, s: DbQueueSettings, x: DbQueueEntry, now: Date) {
+  const waiting = db.queueEntries.filter((y) => y.eventId === s.eventId && y.status === 'WAITING');
+  const ahead =
+    x.status === 'WAITING' && x.position !== null ? waiting.filter((y) => y.position !== null && y.position < x.position!).length : null;
+  return {
+    eventId: s.eventId,
+    status: x.status,
+    queueEnabled: s.enabled,
+    position: x.position,
+    aheadOfYou: ahead,
+    waitingCount: waiting.length,
+    saleStartAt: s.saleStartAt,
+    saleStarted: new Date(s.saleStartAt) <= now,
+    admittedAt: x.admittedAt,
+    expiresAt: x.expiresAt,
+    retryAfterSeconds: retryAfter(s, x, ahead, now),
+    serverTime: now.toISOString(),
+  };
+}
+
+/** Đặt vé cho sự kiện bật hàng chờ: phải đang ADMITTED và còn hạn. Trả lượt để đánh dấu COMPLETED. */
+function checkQueueAdmission(db: MockDb, eventId: string, userId: string, now: Date): DbQueueEntry | null {
+  const s = db.queueSettings.find((x) => x.eventId === eventId);
+  if (!s || !s.enabled) return null;
+  queueTick(db, s, now);
+  if (new Date(s.saleStartAt) > now) fail(409, 'SALE_NOT_STARTED', 'Chưa tới giờ mở bán', { saleStartAt: s.saleStartAt });
+  const x = db.queueEntries.find((y) => y.eventId === eventId && y.userId === userId);
+  if (!x || x.status !== 'ADMITTED' || (x.expiresAt && new Date(x.expiresAt) <= now))
+    fail(409, 'QUEUE_ADMISSION_REQUIRED', 'Bạn cần xếp hàng và tới lượt mới đặt được vé', { queueStatus: x?.status ?? null });
+  return x;
+}
+
+function queueOf(db: MockDb, eventId: string) {
+  const s = db.queueSettings.find((x) => x.eventId === eventId);
+  if (!s) fail(404, 'QUEUE_NOT_CONFIGURED', 'Không tìm thấy cấu hình hàng chờ');
+  return s;
+}
+
+function myEntry(db: MockDb, eventId: string, userId: string) {
+  const x = db.queueEntries.find((y) => y.eventId === eventId && y.userId === userId);
+  if (!x) fail(404, 'QUEUE_ENTRY_NOT_FOUND', 'Không tìm thấy lượt xếp hàng');
+  return x;
+}
+
+route('POST', '/api/events/:id/queue', 'user', ({ db, params, user, now }) => {
+  const e = db.events.find((x) => x.id === params.id);
+  if (!e || e.status !== 'PUBLISHED') fail(404, 'EVENT_NOT_FOUND', 'Không tìm thấy sự kiện');
+  if (new Date(e.startTime) <= now) fail(409, 'EVENT_ALREADY_STARTED', 'Sự kiện đã diễn ra');
+  const s = db.queueSettings.find((x) => x.eventId === e.id);
+  if (!s || !s.enabled) fail(409, 'QUEUE_NOT_ENABLED', 'Sự kiện này không dùng hàng chờ, có thể đặt vé trực tiếp');
+  queueTick(db, s, now);
+  const nowIso = now.toISOString();
+  let x = db.queueEntries.find((y) => y.eventId === e.id && y.userId === user!.id);
+  const active = x && (x.status === 'WAITING' || (x.status === 'ADMITTED' && new Date(x.expiresAt!) > now));
+  if (x && active) {
+    x.lastSeenAt = nowIso;
+    return ok(toQueueEntry(db, s, x, now), 200);
+  }
+  const position = s.randomizedAt ? ++s.lastPosition : null;
+  const fresh: DbQueueEntry = {
+    eventId: e.id,
+    userId: user!.id,
+    status: 'WAITING',
+    position,
+    joinedAt: nowIso,
+    lastSeenAt: nowIso,
+    admittedAt: null,
+    expiresAt: null,
+    finishedAt: null,
+  };
+  if (x) Object.assign(x, fresh);
+  else db.queueEntries.push((x = fresh));
+  queueTick(db, s, now);
+  return ok(toQueueEntry(db, s, x, now), 201);
+});
+
+route('GET', '/api/events/:id/queue/me', 'user', ({ db, params, user, now }) => {
+  const x = myEntry(db, params.id, user!.id);
+  const s = queueOf(db, params.id);
+  x.lastSeenAt = now.toISOString();
+  queueTick(db, s, now);
+  return ok(toQueueEntry(db, s, x, now));
+});
+
+route('DELETE', '/api/events/:id/queue/me', 'user', ({ db, params, user, now }) => {
+  const x = myEntry(db, params.id, user!.id);
+  const s = queueOf(db, params.id);
+  if (x.status === 'WAITING' || x.status === 'ADMITTED') {
+    x.status = 'LEFT';
+    x.finishedAt = now.toISOString();
+  }
+  queueTick(db, s, now);
+  return ok(toQueueEntry(db, s, x, now));
+});
+
+function toQueueSettings(db: MockDb, s: DbQueueSettings) {
+  const counts: Record<string, number> = {};
+  for (const x of db.queueEntries.filter((y) => y.eventId === s.eventId)) counts[x.status] = (counts[x.status] ?? 0) + 1;
+  const { lastPosition: _last, ...rest } = s;
+  return { ...rest, counts };
+}
+
+route('GET', '/api/admin/events/:id/queue', 'admin', ({ db, params }) => ok(toQueueSettings(db, queueOf(db, params.id))));
+
+route('PUT', '/api/admin/events/:id/queue', 'admin', ({ db, params, body, now }) => {
+  const e = db.events.find((x) => x.id === params.id);
+  if (!e) fail(404, 'EVENT_NOT_FOUND', 'Không tìm thấy sự kiện');
+  const issues: Issue[] = [];
+  if (typeof body.enabled !== 'boolean') issues.push({ path: 'enabled', message: 'enabled phải là true hoặc false' });
+  if (typeof body.saleStartAt !== 'string' || !/(Z|[+-]\d{2}:?\d{2})$/.test(body.saleStartAt) || !isIso(body.saleStartAt))
+    issues.push({ path: 'saleStartAt', message: 'Giờ mở bán phải theo ISO 8601 có múi giờ' });
+  if (!isInt(body.maxActive, 1) || (body.maxActive as number) > 10000)
+    issues.push({ path: 'maxActive', message: 'Số người mua cùng lúc từ 1 đến 10000' });
+  if (!isInt(body.accessMinutes, 1) || (body.accessMinutes as number) > 120)
+    issues.push({ path: 'accessMinutes', message: 'Số phút mỗi lượt từ 1 đến 120' });
+  invalid(issues);
+  if (e.status === 'CANCELLED') fail(409, 'EVENT_CANCELLED', 'Sự kiện đã hủy');
+  const saleStartAt = new Date(body.saleStartAt as string).toISOString();
+  let s = db.queueSettings.find((x) => x.eventId === e.id);
+  if (s && new Date(s.saleStartAt) <= now && new Date(s.saleStartAt).getTime() !== new Date(saleStartAt).getTime())
+    fail(409, 'QUEUE_ALREADY_STARTED', 'Hàng chờ đã mở bán, không đổi được giờ mở bán nữa', { saleStartAt: s.saleStartAt });
+  if (!s) {
+    s = { eventId: e.id, enabled: false, saleStartAt, maxActive: 1, accessMinutes: 1, randomizedAt: null, lastPosition: 0, updatedAt: '' };
+    db.queueSettings.push(s);
+  }
+  s.enabled = body.enabled as boolean;
+  s.saleStartAt = saleStartAt;
+  s.maxActive = body.maxActive as number;
+  s.accessMinutes = body.accessMinutes as number;
+  s.updatedAt = now.toISOString();
+  return ok(toQueueSettings(db, s));
+});
+
+route('POST', '/api/admin/events/:id/queue/tick', 'admin', ({ db, params, now }) => {
+  const s = queueOf(db, params.id);
+  const r = queueTick(db, s, now);
+  return ok({ tick: { events: 1, ...r }, settings: toQueueSettings(db, s) });
+});
 
 // ---------- Quản trị: thống kê ----------
 // Backend thật lấy số vé từ Azure và doanh thu từ DB GCP. Ở đây tính cả hai từ bản ghi đặt/hủy.

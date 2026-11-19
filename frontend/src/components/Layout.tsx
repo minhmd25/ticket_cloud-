@@ -6,14 +6,14 @@ import { mockControls } from '../api/mock/server';
 import { Icon } from './ui';
 
 const CUSTOMER_NAV = [
-  { to: '/events', label: 'Sự kiện' },
-  { to: '/my-tickets', label: 'Vé của tôi' },
+  { to: '/events', label: 'Sự kiện', icon: 'sparkle' },
+  { to: '/my-tickets', label: 'Vé của tôi', icon: 'ticket' },
 ];
 
 const ADMIN_NAV = [
-  { to: '/admin/events', label: 'Sự kiện' },
-  { to: '/admin/orders', label: 'Đơn đặt vé' },
-  { to: '/admin/stats', label: 'Thống kê' },
+  { to: '/admin/events', label: 'Sự kiện', icon: 'calendar' },
+  { to: '/admin/orders', label: 'Đơn đặt vé', icon: 'list' },
+  { to: '/admin/stats', label: 'Thống kê', icon: 'chart' },
 ];
 
 export function Layout({ variant, children }: { variant: 'customer' | 'admin'; children?: ReactNode }) {
@@ -34,8 +34,10 @@ export function Layout({ variant, children }: { variant: 'customer' | 'admin'; c
       <header className="topbar">
         <div className="topbar__inner">
           <Link to={variant === 'admin' ? '/admin' : '/events'} className="brand">
-            <Icon name="ticket" className="brand__icon" />
-            <span>
+            <span className="brand__mark" aria-hidden="true">
+              <Icon name="ticket" className="brand__icon" />
+            </span>
+            <span className="brand__text">
               Đặt vé sự kiện
               {variant === 'admin' && <span className="brand__area">Quản trị</span>}
             </span>
@@ -43,22 +45,28 @@ export function Layout({ variant, children }: { variant: 'customer' | 'admin'; c
           <nav className="topnav" aria-label={variant === 'admin' ? 'Điều hướng quản trị' : 'Điều hướng chính'}>
             {nav.map((item) => (
               <NavLink key={item.to} to={item.to} className="topnav__link">
-                {item.label}
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
               </NavLink>
             ))}
             {variant === 'customer' && user?.role === 'admin' && (
               <NavLink to="/admin" className="topnav__link">
-                Khu vực quản trị
+                <Icon name="chart" />
+                <span>Khu vực quản trị</span>
               </NavLink>
             )}
           </nav>
           <div className="usermenu">
+            <span className="avatar" aria-hidden="true">
+              {(user?.username ?? '?').charAt(0).toUpperCase()}
+            </span>
             <span className="usermenu__name">
               {user?.username}
               <span className="usermenu__role">{user?.role === 'admin' ? 'Quản trị viên' : 'Khách hàng'}</span>
             </span>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={handleLogout}>
-              Đăng xuất
+            <button type="button" className="btn btn--ghost btn--sm usermenu__logout" onClick={handleLogout}>
+              <Icon name="logout" />
+              <span>Đăng xuất</span>
             </button>
           </div>
         </div>

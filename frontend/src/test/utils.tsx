@@ -17,7 +17,7 @@ export function renderApp(path = '/') {
 }
 
 /** Đăng nhập thẳng qua API (bỏ qua màn hình) để test đi nhanh tới trang cần kiểm tra. */
-export async function loginAs(username: 'alice' | 'bob' | 'admin1') {
+export async function loginAs(username: 'alice' | 'bob' | 'carol' | 'admin1') {
   const password = username === 'admin1' ? DEMO_PASSWORDS.admin : DEMO_PASSWORDS.customer;
   const session = await api.login(username, password);
   setSession(session);
