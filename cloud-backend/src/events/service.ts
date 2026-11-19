@@ -12,6 +12,8 @@ export interface TicketTypeDto {
   name: string;
   description: string;
   price: number;
+  /** GENERAL: bán theo số lượng; ASSIGNED: chọn ghế trên sơ đồ */
+  seating: 'GENERAL' | 'ASSIGNED';
   totalQuantity: number;
   availableQuantity: number;
   /** số vé đang được giữ trong các đơn hợp lệ (CONFIRMED) */
@@ -51,6 +53,7 @@ export function toTicketTypeDto(r: any): TicketTypeDto {
     name: r.name,
     description: r.description,
     price: Number(r.price),
+    seating: r.seating,
     totalQuantity: r.total_quantity,
     availableQuantity: r.available_quantity,
     reservedQuantity: r.total_quantity - r.available_quantity,
@@ -134,13 +137,39 @@ export class EventService {
     return r.rows.map((x) => ({ category: x.category, eventCount: x.n }));
   }
 
-  /** Chi tiết sự kiện kèm các hạng vé, giá, số lượng còn lại */
+  /**
+   * Chi tiết sự kiện kèm các hạng vé, giá, số lượng còn lại.
+   * `seatMap` (null nếu chưa có sơ đồ) và `queue` (null nếu không dùng hàng chờ) cho frontend biết
+   * cần hiện sơ đồ ghế / trang chờ hay không.
+   */
   async getById(id: string, publicView: boolean, db: Queryable = this.db) {
-    const ev = await db.query('SELECT * FROM events WHERE id = $1', [id]);
+    const ev = await db.query(
+      `SELECT e.*, m.version AS seat_map_version,
+              q.enabled AS queue_enabled, q.sale_start_at AS queue_sale_start_at,
+              q.max_active AS queue_max_active, q.access_minutes AS queue_access_minutes
+         FROM events e
+         LEFT JOIN seat_maps m ON m.event_id = e.id
+         LEFT JOIN event_queue_settings q ON q.event_id = e.id
+        WHERE e.id = $1`,
+      [id],
+    );
     const row = ev.rows[0];
     if (!row || (publicView && row.status !== 'PUBLISHED')) throw Errors.notFound('sự kiện', 'EVENT_NOT_FOUND');
     const tts = await db.query('SELECT * FROM ticket_types WHERE event_id = $1 ORDER BY price ASC, name ASC', [id]);
-    return { ...toEventDto(row), ticketTypes: tts.rows.map(toTicketTypeDto) };
+    return {
+      ...toEventDto(row),
+      ticketTypes: tts.rows.map(toTicketTypeDto),
+      seatMap: row.seat_map_version === null ? null : { version: row.seat_map_version as number },
+      queue:
+        row.queue_enabled === null
+          ? null
+          : {
+              enabled: row.queue_enabled as boolean,
+              saleStartAt: iso(row.queue_sale_start_at),
+              maxActive: row.queue_max_active as number,
+              accessMinutes: row.queue_access_minutes as number,
+            },
+    };
   }
 
   async create(input: EventCreateInput, createdBy: string) {
@@ -234,6 +263,30 @@ export class EventService {
       );
       if (!cur.rows[0]) throw Errors.notFound('hạng vé', 'TICKET_TYPE_NOT_FOUND');
 
+      // Đổi cách bán (GENERAL <-> ASSIGNED): khóa dòng sự kiện như khi lưu sơ đồ ghế,
+      // để không đơn nào / không lần lưu sơ đồ nào chen vào giữa lúc kiểm tra và lúc đổi.
+      if (patch.seating !== undefined && patch.seating !== cur.rows[0].seating) {
+        await tx.query('SELECT 1 FROM events WHERE id = $1 FOR UPDATE', [cur.rows[0].event_id]);
+        const t = (await tx.query('SELECT * FROM ticket_types WHERE id = $1 FOR UPDATE', [ticketTypeId])).rows[0];
+        if (t.total_quantity - t.available_quantity > 0) {
+          throw Errors.conflict('TICKET_TYPE_HAS_ORDERS', 'Hạng vé đã có đơn, không đổi được cách bán (theo số lượng / theo ghế)');
+        }
+        if (t.seating === 'ASSIGNED') {
+          const seats = await tx.query('SELECT count(*)::int AS n FROM seats WHERE ticket_type_id = $1', [ticketTypeId]);
+          if (seats.rows[0].n > 0) {
+            throw Errors.conflict('TICKET_TYPE_HAS_SEATS', 'Hạng vé đang có ghế trên sơ đồ, hãy gỡ các ghế này khỏi sơ đồ trước', {
+              seats: seats.rows[0].n,
+            });
+          }
+        }
+        // ASSIGNED: chưa ghế nào thuộc hạng (ghế chỉ được gán cho hạng ASSIGNED) => 0 vé.
+        // GENERAL : bắt đầu từ 0, admin gửi kèm totalQuantity trong cùng request nếu muốn.
+        await tx.query(
+          `UPDATE ticket_types SET seating = $2, total_quantity = 0, available_quantity = 0, updated_at = now() WHERE id = $1`,
+          [ticketTypeId, patch.seating],
+        );
+      }
+
       if (patch.totalQuantity !== undefined) {
         const r = await tx.query(
           `UPDATE ticket_types
@@ -241,12 +294,18 @@ export class EventService {
                   total_quantity     = $1::int,
                   updated_at         = now()
             WHERE id = $2
+              AND seating = 'GENERAL'
               AND $1::int >= total_quantity - available_quantity
             RETURNING *`,
           [patch.totalQuantity, ticketTypeId],
         );
         if (r.rowCount === 0) {
-          const now = await tx.query('SELECT total_quantity - available_quantity AS reserved FROM ticket_types WHERE id = $1', [ticketTypeId]);
+          const now = await tx.query('SELECT seating, total_quantity - available_quantity AS reserved FROM ticket_types WHERE id = $1', [
+            ticketTypeId,
+          ]);
+          if (now.rows[0].seating === 'ASSIGNED') {
+            throw Errors.conflict('SEAT_MANAGED_QUANTITY', 'Hạng vé theo ghế: số vé tính theo sơ đồ ghế, sửa sơ đồ thay vì nhập totalQuantity');
+          }
           const reserved = now.rows[0].reserved;
           throw Errors.conflict(
             'QUANTITY_BELOW_RESERVED',
@@ -295,6 +354,12 @@ async function cancelAllOrdersOfEvent(tx: Queryable, eventId: string, actorId: s
          FROM (SELECT ticket_type_id, sum(quantity)::int AS qty FROM c GROUP BY ticket_type_id) s
         WHERE t.id = s.ticket_type_id
         RETURNING t.id
+     ), released AS (
+       -- trả ghế của các đơn vừa hủy (CTE ghi dữ liệu luôn được thực thi dù không được SELECT)
+       UPDATE order_seats os SET released_at = now()
+         FROM c
+        WHERE os.order_id = c.id AND os.released_at IS NULL
+        RETURNING os.id
      )
      SELECT c.*, e.title AS event_title, e.category AS event_category,
             e.start_time AS event_start_time, t.name AS ticket_type_name
@@ -310,9 +375,9 @@ async function cancelAllOrdersOfEvent(tx: Queryable, eventId: string, actorId: s
 
 async function insertTicketType(db: Queryable, eventId: string, tt: TicketTypeInput) {
   const r = await db.query(
-    `INSERT INTO ticket_types (event_id, name, description, price, total_quantity, available_quantity)
-     VALUES ($1,$2,$3,$4,$5,$5) RETURNING *`,
-    [eventId, tt.name, tt.description, tt.price, tt.totalQuantity],
+    `INSERT INTO ticket_types (event_id, name, description, price, seating, total_quantity, available_quantity)
+     VALUES ($1,$2,$3,$4,$5,$6,$6) RETURNING *`,
+    [eventId, tt.name, tt.description, tt.price, tt.seating, tt.totalQuantity],
   );
   return r.rows[0];
 }

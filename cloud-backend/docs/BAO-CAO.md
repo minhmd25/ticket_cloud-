@@ -1,7 +1,7 @@
 # Báo cáo: API quản lý sự kiện và đặt vé
 
 **Phạm vi phụ trách**: backend sự kiện, hạng vé, đặt/hủy và tra cứu đơn trên GCP; gửi sự kiện đơn sang Azure và đọc thống kê từ Azure.
-**Kết quả**: hoàn thành toàn bộ 12 hạng mục được giao. Có **74 test tích hợp chạy trên PostgreSQL thật, tất cả đều đạt** (gồm 8 test của module tài khoản do Việt Đức làm, xem [BAO-CAO-TAI-KHOAN.md](BAO-CAO-TAI-KHOAN.md)). Đã tích hợp theo hợp đồng thật với phần Azure (Storage Queue + API thống kê) và đã triển khai lên Cloud Run + Cloud SQL (Dương phụ trách hạ tầng).
+**Kết quả**: hoàn thành toàn bộ 12 hạng mục được giao. Có **103 test tích hợp chạy trên PostgreSQL thật, tất cả đều đạt** (gồm 8 test của module tài khoản do Việt Đức làm, xem [BAO-CAO-TAI-KHOAN.md](BAO-CAO-TAI-KHOAN.md)). Đã tích hợp theo hợp đồng thật với phần Azure (Storage Queue + API thống kê) và đã triển khai lên Cloud Run + Cloud SQL (Dương phụ trách hạ tầng).
 
 ---
 
@@ -63,12 +63,14 @@ Phần làm thêm:
 - Giới hạn số vé mỗi đơn
 - Không cho đặt vé sự kiện DRAFT, đã hủy hoặc đã diễn ra
 - Dữ liệu mẫu (seed) và Dockerfile cho Cloud Run
+- **Sơ đồ ghế tự do và đặt ghế**: ghế là điểm tọa độ (x, y, góc xoay), vẽ được hàng ghế cong; đặt nhiều ghế theo nguyên tắc đủ hết hoặc không; unique index bảo đảm một ghế chỉ thuộc một đơn còn hiệu lực. Chi tiết: [GHE-VA-HANG-CHO.md](GHE-VA-HANG-CHO.md)
+- **Hàng chờ ảo**: giới hạn số người mua cùng lúc, người vào trước giờ mở bán được xếp ngẫu nhiên, worker an toàn khi chạy nhiều instance (`FOR UPDATE SKIP LOCKED`)
 
 ---
 
 ## 4. Kết quả kiểm thử
 
-Lệnh `npm test` trả kết quả: **9 file, 74/74 test đạt**. Chạy lặp lại 3 lần đều đạt, không có test chập chờn. Cloud Build của Dương cũng chạy bộ test trên PostgreSQL 16 tạm trước khi đẩy image.
+Lệnh `npm test` trả kết quả: **12 file, 103/103 test đạt** (29 test của sơ đồ ghế, đặt ghế và hàng chờ nằm trong `tests/seat-map.test.ts`, `tests/seat-booking.test.ts`, `tests/queue.test.ts`). Chạy lặp lại 3 lần đều đạt, không có test chập chờn. Cloud Build của Dương cũng chạy bộ test trên PostgreSQL 16 tạm trước khi đẩy image.
 
 | Tình huống yêu cầu | Test | Kết quả |
 |---|---|---|
@@ -94,6 +96,11 @@ Lệnh `npm test` trả kết quả: **9 file, 74/74 test đạt**. Chạy lặp
 | Mẫu thông điệp Azure | Validator đối chiếu 89 ca của Azure: 0 ca "mình nhận nhưng Azure từ chối"; thông điệp sai mẫu chuyển FAILED ngay, không gửi; `messageId` giữ nguyên qua các lần thử lại | ✅ |
 | Tài khoản và phân quyền (Việt Đức) | Đăng nhập đúng/sai, thiếu trường, phiên thiếu/sai/hết hạn, khách gọi API quản trị, khách chỉ thấy đơn của mình; token của `npm run token` được nhận ở cả chế độ `local` và `jwt`, vai trò vẫn lấy từ DB | ✅ |
 | Gửi qua Storage Queue | Dùng server queue giả lập kiểm tra dữ liệu thật gửi đi: JSON thô, không base64; `&` `<` được escape; đúng đường dẫn `/messages`; SAS lỗi 403 thì thử lại và không lộ chữ ký | ✅ |
+| Sơ đồ ghế | Trùng nhãn, ngoài khung, chồng nhau, khu không tồn tại: 400 kèm chi tiết; ghế gán sai hạng vé: 422; sửa trên bản cũ: 409 theo version; ETag trả 304 khi chưa đổi; ghế đã bán không xóa/đổi hạng/khóa được nhưng dời được; khóa ghế cập nhật số vé còn lại; chép sơ đồ ghép hạng vé theo tên; 5000 ghế lưu được, 5001 bị từ chối; sơ đồ nhà hát hàng cong hợp lệ | ✅ |
+| Đặt ghế | Đơn kèm ghế, thông điệp Azure vẫn đúng 7 trường; có một ghế đã bán thì cả đơn bị từ chối, không giữ ghế nào; hủy đơn hoặc hủy sự kiện trả ghế; Idempotency-Key so cả tập ghế | ✅ |
+| (mở rộng) | 30 khách tranh các cặp ghế chồng lấn cùng lúc: mỗi ghế bán tối đa một lần, số vé đã bán = số ghế đang giữ = tổng vé các đơn | ✅ |
+| Hàng chờ ảo | Trước giờ mở bán không đặt được vé; lúc mở bán người vào trước nhận vị trí 1..N, người đến sau đứng tiếp; cho vào đúng `max_active` người; đặt xong thì nhường chỗ; hết giờ mua và bỏ trang chờ bị loại; vào lại thì đứng cuối; không đổi giờ mở bán sau khi đã mở | ✅ |
+| (mở rộng) | 4 worker chạy song song không cho vào quá `max_active`; 20 người vào hàng cùng lúc nhận 20 vị trí khác nhau; bấm đặt 2 lần cùng Idempotency-Key khi đang ở lượt mua: 1 đơn | ✅ |
 
 Ngoài ra đã chạy thử server thật (bản build production) với dữ liệu seed. Hai request đồng thời tranh vé VVIP cuối cho kết quả một 201 và một 409; worker gửi đủ 5 sự kiện sang mock Azure theo đúng thứ tự.
 
@@ -123,3 +130,4 @@ Ngoài ra đã chạy thử server thật (bản build production) với dữ li
 | Gửi sự kiện sang Azure | SAS token do người làm Azure cấp | **Đã tích hợp và chạy thử với Azure thật thành công** (`PUBLISHER_MODE=azure-queue`). SAS hiện tại hết hạn ngày 15/01/2027, cần xin token mới trước ngày đó |
 | Thống kê | `x-functions-key` do người làm Azure cấp | **Đã tích hợp và chạy thử với Azure thật thành công**: `/stats` và `/history` (`STATS_MODE=http`). Chế độ mock giả lập đúng API này |
 | Thanh toán | Chưa thuộc phạm vi; đơn được xác nhận ngay khi đặt | Nếu cần, có thể thêm trạng thái PENDING_PAYMENT kèm thời hạn giữ vé |
+| Giao diện sơ đồ ghế và hàng chờ | Minh làm frontend theo [GHE-VA-HANG-CHO.md](GHE-VA-HANG-CHO.md) mục 5 | Backend, test và tài liệu đã xong trên nhánh `feature/seat-map-virtual-queue`, **chờ review**. Chưa triển khai lên cloud |

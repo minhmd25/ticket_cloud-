@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { currentUser, requireAdmin, requireAuth } from './auth/middleware';
 import type { EventService } from './events/service';
@@ -20,6 +20,11 @@ import {
 } from './orders/schemas';
 import type { OrderService } from './orders/service';
 import type { OutboxAdmin, OutboxDispatcher } from './outbox/worker';
+import { queueSettingsSchema } from './queue/schemas';
+import type { QueueService } from './queue/service';
+import type { QueueWorker } from './queue/worker';
+import { seatMapCopySchema, seatMapInputSchema, seatPatchSchema } from './seating/schemas';
+import { seatMapEtag, type SeatMapService } from './seating/service';
 import type { StatsService } from './stats/client';
 
 export interface Services {
@@ -28,6 +33,9 @@ export interface Services {
   outboxAdmin: OutboxAdmin;
   dispatcher: OutboxDispatcher;
   stats: StatsService;
+  seatMaps: SeatMapService;
+  queue: QueueService;
+  queueWorker: QueueWorker;
 }
 
 const id = (v: unknown) => uuidSchema.parse(v);
@@ -71,6 +79,42 @@ export function buildRoutes(s: Services): Router {
   });
   r.get('/events/:eventId', async (req, res) => {
     res.json(await s.events.getById(id(req.params.eventId), true));
+  });
+
+  // Sơ đồ ghế: ít thay đổi, có thể tới 5000 ghế => ETag theo version, trình duyệt gửi If-None-Match, nhận 304.
+  const sendSeatMap = (publicView: boolean) => async (req: Request, res: Response) => {
+    const eventId = id(req.params.eventId);
+    const version = await s.seatMaps.currentVersion(eventId, publicView);
+    res.set('Cache-Control', 'no-cache');
+    res.set('ETag', seatMapEtag(version));
+    if (req.fresh) {
+      res.status(304).end();
+      return;
+    }
+    const map = await s.seatMaps.get(eventId, publicView);
+    res.set('ETag', seatMapEtag(map.version));
+    res.json(map);
+  };
+  r.get('/events/:eventId/seat-map', sendSeatMap(true));
+  // Trạng thái ghế: thay đổi liên tục, frontend hỏi lại định kỳ
+  r.get('/events/:eventId/seats/status', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await s.seatMaps.status(id(req.params.eventId), true));
+  });
+
+  // ======================= HÀNG CHỜ (đã đăng nhập) =======================
+  r.post('/events/:eventId/queue', requireAuth, async (req, res) => {
+    const { entry, created } = await s.queue.join(id(req.params.eventId), currentUser(req));
+    res.set('Cache-Control', 'no-store');
+    res.status(created ? 201 : 200).json(entry);
+  });
+  r.get('/events/:eventId/queue/me', requireAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await s.queue.me(id(req.params.eventId), currentUser(req)));
+  });
+  r.delete('/events/:eventId/queue/me', requireAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await s.queue.leave(id(req.params.eventId), currentUser(req)));
   });
 
   // ======================= KHÁCH (đã đăng nhập) =======================
@@ -117,6 +161,41 @@ export function buildRoutes(s: Services): Router {
   });
   admin.patch('/ticket-types/:ticketTypeId', async (req, res) => {
     res.json(await s.events.updateTicketType(id(req.params.ticketTypeId), ticketTypeUpdateSchema.parse(req.body)));
+  });
+
+  // sơ đồ ghế
+  admin.get('/events/:eventId/seat-map', sendSeatMap(false));
+  admin.put('/events/:eventId/seat-map', async (req, res) => {
+    const map = await s.seatMaps.save(id(req.params.eventId), seatMapInputSchema.parse(req.body), currentUser(req).userId);
+    res.set('ETag', seatMapEtag(map.version));
+    res.json(map);
+  });
+  admin.post('/events/:eventId/seat-map/copy-from/:sourceEventId', async (req, res) => {
+    const body = seatMapCopySchema.parse(req.body ?? {});
+    const map = await s.seatMaps.copyFrom(id(req.params.eventId), id(req.params.sourceEventId), body.version, currentUser(req).userId);
+    res.set('ETag', seatMapEtag(map.version));
+    res.json(map);
+  });
+  admin.patch('/events/:eventId/seats', async (req, res) => {
+    res.json(await s.seatMaps.patchSeats(id(req.params.eventId), seatPatchSchema.parse(req.body), currentUser(req).userId));
+  });
+  admin.get('/events/:eventId/seats/status', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await s.seatMaps.status(id(req.params.eventId), false));
+  });
+
+  // hàng chờ ảo
+  admin.get('/events/:eventId/queue', async (req, res) => {
+    res.json(await s.queue.getSettings(id(req.params.eventId)));
+  });
+  admin.put('/events/:eventId/queue', async (req, res) => {
+    res.json(await s.queue.putSettings(id(req.params.eventId), queueSettingsSchema.parse(req.body), currentUser(req).userId));
+  });
+  /** chạy worker hàng chờ một nhịp ngay cho sự kiện này (demo, không phải chờ QUEUE_TICK_MS) */
+  admin.post('/events/:eventId/queue/tick', async (req, res) => {
+    const eventId = id(req.params.eventId);
+    const tick = await s.queueWorker.tickOnce(eventId);
+    res.json({ tick, settings: await s.queue.getSettings(eventId) });
   });
 
   admin.get('/orders', async (req, res) => {

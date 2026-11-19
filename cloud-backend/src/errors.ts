@@ -46,6 +46,10 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Body không phải JSON hợp lệ' } });
     return;
   }
+  if (err?.type === 'entity.too.large') {
+    res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'Dữ liệu gửi lên quá lớn' } });
+    return;
+  }
   // Vi phạm CHECK constraint của DB (lớp bảo vệ cuối) -> 409 thay vì 500
   if (err?.code === '23514') {
     res.status(409).json({ error: { code: 'CONSTRAINT_VIOLATION', message: 'Dữ liệu vi phạm ràng buộc', details: err.constraint } });

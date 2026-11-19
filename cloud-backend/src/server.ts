@@ -19,10 +19,15 @@ async function main() {
     services.dispatcher.start();
     console.log(`[outbox] worker chạy mỗi ${config.outbox.pollIntervalMs}ms`);
   }
+  if (config.queue.tickMs > 0) {
+    services.queueWorker.start();
+    console.log(`[queue] worker hàng chờ chạy mỗi ${config.queue.tickMs}ms`);
+  }
 
   const shutdown = (sig: string) => {
     console.log(`[api] nhận ${sig}, đang tắt...`);
     services.dispatcher.stop();
+    services.queueWorker.stop();
     server.close(() => void db.end().then(() => process.exit(0)));
     setTimeout(() => process.exit(1), 10_000).unref();
   };

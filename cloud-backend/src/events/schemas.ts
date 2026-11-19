@@ -11,12 +11,29 @@ const categorySchema = z
   .max(50)
   .regex(/^[a-z0-9_-]+$/, 'Loại hình chỉ gồm chữ thường không dấu, số, "-" hoặc "_" (vd: concert, sport)');
 
-export const ticketTypeInputSchema = z.object({
-  name: z.string().trim().min(1, 'Tên hạng vé không được trống').max(100),
-  description: z.string().max(2000).optional().default(''),
-  price: priceSchema,
-  totalQuantity: quantitySchema,
-});
+/**
+ * GENERAL : bán theo số lượng, admin nhập totalQuantity.
+ * ASSIGNED: bán theo ghế trên sơ đồ, totalQuantity do backend tính = số ghế (không bị khóa) của hạng.
+ */
+export const SEATING_MODES = ['GENERAL', 'ASSIGNED'] as const;
+
+export const ticketTypeInputSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Tên hạng vé không được trống').max(100),
+    description: z.string().max(2000).optional().default(''),
+    price: priceSchema,
+    seating: z.enum(SEATING_MODES).optional().default('GENERAL'),
+    totalQuantity: quantitySchema.optional(),
+  })
+  .superRefine((t, ctx) => {
+    if (t.seating === 'GENERAL' && t.totalQuantity === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['totalQuantity'], message: 'Cần nhập tổng số vé' });
+    }
+    if (t.seating === 'ASSIGNED' && t.totalQuantity !== undefined && t.totalQuantity !== 0) {
+      ctx.addIssue({ code: 'custom', path: ['totalQuantity'], message: 'Hạng vé theo ghế tính số vé theo sơ đồ ghế, không nhập totalQuantity' });
+    }
+  })
+  .transform((t) => ({ ...t, totalQuantity: t.seating === 'ASSIGNED' ? 0 : t.totalQuantity! }));
 
 export const ticketTypeUpdateSchema = z
   .object({
@@ -24,10 +41,15 @@ export const ticketTypeUpdateSchema = z
     description: z.string().max(2000),
     price: priceSchema,
     totalQuantity: quantitySchema,
+    seating: z.enum(SEATING_MODES),
   })
   .partial()
   .strict()
-  .refine((o) => Object.keys(o).length > 0, 'Cần ít nhất một trường để cập nhật');
+  .refine((o) => Object.keys(o).length > 0, 'Cần ít nhất một trường để cập nhật')
+  .refine((o) => !(o.seating === 'ASSIGNED' && o.totalQuantity !== undefined), {
+    message: 'Hạng vé theo ghế tính số vé theo sơ đồ ghế, không nhập totalQuantity',
+    path: ['totalQuantity'],
+  });
 
 export const eventCreateSchema = z
   .object({
