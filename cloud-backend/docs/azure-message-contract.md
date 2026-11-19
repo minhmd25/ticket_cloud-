@@ -64,7 +64,7 @@ Không gửi `userId` và giá sang Azure vì Azure không cần các trường 
 | Không gửi thông điệp sai mẫu | Xem mục 3 |
 | SAS hết hạn hoặc sai | Queue trả 401/403. Thông điệp ở lại PENDING và được thử lại; quá `OUTBOX_MAX_ATTEMPTS` thì chuyển FAILED. Sau khi thay SAS mới, admin bấm "Gửi lại" (`POST /api/admin/outbox/retry`) |
 | Không lộ SAS | Phần `sig=` bị che (`***`) trong mọi log và lỗi |
-| Minh chứng gửi thành công | Mỗi lần queue trả thành công, ghi một dòng JSON `azure_queue_send_succeeded` kèm `httpStatus` thật (201), `eventId`, `orderId`, `messageId`, `messageType`. Gọi `/stats` hoặc `/history` thành công ghi `azure_stats_request_succeeded` (200). Xem README mục 4.5 |
+| Minh chứng gửi thành công | Mỗi lần queue trả thành công, ghi một dòng JSON `azure_queue_send_succeeded` kèm `httpStatus` thật (201), `eventId`, `orderId`, `messageId`, `messageType`. Gọi `/stats` hoặc `/history` thành công ghi `azure_stats_request_succeeded` (200). Xem mục 7.6 của [README](../../README.md#76-log-minh-chứng-cloud-logging) |
 
 ## 3. Kiểm tra thông điệp TRƯỚC KHI gửi
 

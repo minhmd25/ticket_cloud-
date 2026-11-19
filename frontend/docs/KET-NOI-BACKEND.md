@@ -1,7 +1,7 @@
 # Kết nối frontend với backend
 
 Frontend gọi **backend chung** trong thư mục `cloud-backend` (Vũ Ngọc Đức, Đoàn Việt Đức).
-Hợp đồng API chính thức là [`cloud-backend/docs/API.md`](https://github.com/DucVu727/cloud-backend/blob/main/docs/API.md). Tài liệu này chỉ ghi frontend dùng API nào và xử lý từng mã lỗi ra sao.
+Hợp đồng API chính thức là [`cloud-backend/docs/API.md`](../../cloud-backend/docs/API.md). Tài liệu này chỉ ghi frontend dùng API nào và xử lý từng mã lỗi ra sao.
 
 Mọi lời gọi API nằm trong một file: [`src/api/index.ts`](../src/api/index.ts). Nếu backend đổi đường dẫn hay dữ liệu, chỉ cần sửa file này.
 
@@ -19,7 +19,7 @@ Backend giả trả lời đúng cùng hợp đồng với backend thật (cùng
 
 ### Chạy backend trên máy
 
-Làm theo mục 1 trong [`cloud-backend/README.md`](https://github.com/DucVu727/cloud-backend/blob/main/README.md). Các biến cần cho frontend:
+Làm theo mục 3.2 của [README chung](../../README.md#32-chạy-cả-backend-và-frontend). Các biến cần cho frontend:
 
 ```bash
 AUTH_MODE=local            # bật POST /api/auth/login
@@ -86,7 +86,7 @@ Frontend hiển thị nguyên văn `error.message` của backend, trừ vài tr�
 
 Phần này làm sau, khi đã chốt bản chạy trên máy.
 
-1. **Backend** (Hoàng Quốc Dương): service `ticket-api` hiện chạy `AUTH_MODE=jwt` với bản code cũ, chưa có `POST /api/auth/login`. Cần triển khai bản code mới với `AUTH_MODE=local` và tạo tài khoản bằng job seed (mục 4.1, 4.3 của README backend). Kiểm tra: `curl https://ticket-api-5iqotxgmrq-as.a.run.app/health` phải có `"auth":"local"`.
+1. **Backend** (Hoàng Quốc Dương): service `ticket-api` hiện chạy `AUTH_MODE=jwt` với bản code cũ, chưa có `POST /api/auth/login`. Cần triển khai bản code mới với `AUTH_MODE=local` và tạo tài khoản bằng job seed (mục 7.1, 7.3 của [README chung](../../README.md#7-triển-khai-lên-gcp-cloud-run--cloud-sql)). Kiểm tra: `curl https://ticket-api-5iqotxgmrq-as.a.run.app/health` phải có `"auth":"local"`.
 2. **Frontend**: build image bằng `Dockerfile`, triển khai với biến `API_BASE_URL=https://ticket-api-5iqotxgmrq-as.a.run.app`.
 3. **CORS**: `CORS_ORIGIN` của backend phải chứa đúng URL frontend. Hiện đã có `https://ticket-web-5iqotxgmrq-as.a.run.app` và `https://ticket-admin-5iqotxgmrq-as.a.run.app`, nên chỉ cần triển khai frontend vào một trong hai service này.
 4. Chạy lại kịch bản kiểm thử trên URL thật: `E2E_BASE_URL=<URL frontend> E2E_MODE=api npm run e2e` (cần tài khoản `alice`, `bob`, `admin1` trên DB cloud, hoặc đặt `E2E_CUSTOMER_PASSWORD`, `E2E_ADMIN_PASSWORD`).

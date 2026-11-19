@@ -101,10 +101,10 @@ Ngoài ra đã chạy thử server thật (bản build production) với dữ li
 
 ## 5. Bàn giao
 
-- Mã nguồn và hướng dẫn khởi tạo dữ liệu: `README.md` (docker compose, migrate, seed; seed lên Cloud SQL ở mục 4.3)
+- Mã nguồn và hướng dẫn khởi tạo dữ liệu: [`README.md`](../../README.md) ở thư mục gốc (docker compose, migrate, seed; seed lên Cloud SQL ở mục 7.3)
 - Tài liệu API cho frontend: `docs/API.md`
 - Hợp đồng với Azure: `docs/azure-message-contract.md`
-- Bản chạy trên GCP: service Cloud Run `ticket-api` (`https://ticket-api-5iqotxgmrq-as.a.run.app`, API dưới `/api`), Cloud SQL `ticket-db`, region `asia-southeast1`. Cấu hình ở `README.md` mục 4.1; Dương build, deploy và kiểm tra bằng script trong `ticket-cloud`
+- Bản chạy trên GCP: service Cloud Run `ticket-api` (`https://ticket-api-5iqotxgmrq-as.a.run.app`, API dưới `/api`), Cloud SQL `ticket-db`, region `asia-southeast1`. Cấu hình ở [`README.md`](../../README.md) mục 7.1; Dương build, deploy và kiểm tra bằng script trong `ticket-cloud`
 
 ### Kiểm thử tích hợp với Azure thật (12/11/2026, `npm run azure:smoke`)
 

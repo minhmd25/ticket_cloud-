@@ -48,6 +48,6 @@ Các ca tích hợp chạy qua Express, PostgreSQL và provider `local` trong [`
 
 - **Frontend khách hàng và quản trị** dùng chung hợp đồng JSON, Bearer token và cách xử lý 401/403. [Tài liệu API có request và response mẫu](API.md#0-đăng-nhập-và-phiên-dùng-chung-cho-hai-frontend)
 - **Backend đặt vé** dùng `req.user.userId` đã xác thực để lưu và kiểm tra chủ đơn. Tài khoản mẫu `alice` dùng cùng mã với các đơn mẫu có sẵn.
-- **Triển khai GCP** cấu hình `AUTH_MODE=local`, khóa `AUTH_JWT_SECRET` trong Secret Manager, TTL và danh sách origin của hai frontend. Container chạy migration khi khởi động. Job seed nhận hai mật khẩu demo từ Secret Manager. [Hướng dẫn chạy và cấu hình triển khai](../README.md#4-triển-khai-lên-gcp-cloud-run--cloud-sql)
+- **Triển khai GCP** cấu hình `AUTH_MODE=local`, khóa `AUTH_JWT_SECRET` trong Secret Manager, TTL và danh sách origin của hai frontend. Container chạy migration khi khởi động. Job seed nhận hai mật khẩu demo từ Secret Manager. [Hướng dẫn chạy và cấu hình triển khai](../../README.md#7-triển-khai-lên-gcp-cloud-run--cloud-sql)
 
 Kết quả trên được kiểm tra cục bộ. Bước tích hợp hai giao diện và chạy thử trên URL Cloud Run thuộc đợt bàn giao của nhóm. [Bảng phân công Nhóm 5](https://docs.google.com/spreadsheets/d/1J7uSD8GY6_0IlaUtZk8fHN6T4O6KUL6dZINfPs9aJj0/edit#gid=1096500465)

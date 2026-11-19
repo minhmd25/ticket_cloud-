@@ -15,7 +15,7 @@ Xây dựng các màn hình để khách hàng đăng nhập, xem và lọc sự
 
 - **React 18 + TypeScript**, đóng gói bằng **Vite**; điều hướng bằng **React Router**. CSS tự viết (`src/styles.css`), hỗ trợ chế độ sáng/tối và màn hình điện thoại.
 - **Lớp gọi API** (`src/api/client.ts`, `src/api/index.ts`) gom mọi xử lý chung vào một chỗ: gắn `Authorization: Bearer`, giới hạn thời gian chờ 15 giây, chuyển mọi lỗi về một dạng `ApiError { status, code, message, details }`, tách lỗi theo từng ô nhập từ `details: [{ path, message }]` của backend. Khi máy chủ trả 401, lớp này báo cho phần quản lý phiên để tự đăng xuất.
-- **Nối với backend chung**: mọi đường dẫn, dữ liệu và mã lỗi theo [`cloud-backend/docs/API.md`](https://github.com/DucVu727/cloud-backend/blob/main/docs/API.md). Khi phát triển, dev server của Vite chuyển tiếp `/api` sang backend nên không vướng CORS. Chi tiết: [KET-NOI-BACKEND.md](KET-NOI-BACKEND.md).
+- **Nối với backend chung**: mọi đường dẫn, dữ liệu và mã lỗi theo [`cloud-backend/docs/API.md`](../../cloud-backend/docs/API.md). Khi phát triển, dev server của Vite chuyển tiếp `/api` sang backend nên không vướng CORS. Chi tiết: [KET-NOI-BACKEND.md](KET-NOI-BACKEND.md).
 - **Backend giả** (`src/api/mock/`): trước khi có backend, nhóm frontend viết một backend giả chạy trong trình duyệt. Khi backend thật xong, backend giả được viết lại theo đúng hợp đồng của backend thật (cùng đường dẫn, dữ liệu, mã lỗi, tài khoản mẫu), để vẫn chạy demo và kiểm thử nhanh được khi không bật backend.
 
 ```text
@@ -82,7 +82,7 @@ Chạy trên backend giả, mô phỏng người dùng bấm và gõ thật. To�
 ## 5. Hướng dẫn chạy
 
 ```bash
-# Backend (thư mục cloud-backend): xem README, cần AUTH_MODE=local
+# Backend (thư mục cloud-backend): xem mục 3.2 của README chung, cần AUTH_MODE=local
 cd frontend
 npm install
 npm run dev:api    # http://localhost:5173, tài khoản alice / DemoCustomer2026!

@@ -14,7 +14,7 @@ Xây dựng khu vực quản trị để quản trị viên tạo và sửa sự
 ## 2. Công nghệ và cách tổ chức
 
 - Cùng một ứng dụng với giao diện khách hàng (**React 18 + TypeScript + Vite**), nằm dưới đường dẫn `/admin`. Hai bên dùng chung màn hình đăng nhập, phiên đăng nhập và lớp gọi API.
-- Nối với backend chung theo [`cloud-backend/docs/API.md`](https://github.com/DucVu727/cloud-backend/blob/main/docs/API.md). Danh sách API dùng ở từng màn hình và cách xử lý từng mã lỗi: [KET-NOI-BACKEND.md](KET-NOI-BACKEND.md).
+- Nối với backend chung theo [`cloud-backend/docs/API.md`](../../cloud-backend/docs/API.md). Danh sách API dùng ở từng màn hình và cách xử lý từng mã lỗi: [KET-NOI-BACKEND.md](KET-NOI-BACKEND.md).
 - **Recharts** để vẽ biểu đồ. Trang thống kê được tách thành file tải riêng, nên khách hàng không phải tải thư viện biểu đồ.
 - Màu biểu đồ (xanh = vé đặt, cam = vé hủy) đã kiểm tra bằng công cụ đo độ tương phản và mô phỏng mù màu, đạt ở cả chế độ sáng và tối.
 
@@ -78,7 +78,7 @@ Trên máy, DB mới được tạo nên mọi số liệu thống kê nằm ở
 ## 5. Hướng dẫn chạy
 
 ```bash
-# Backend (thư mục cloud-backend): xem README, cần AUTH_MODE=local
+# Backend (thư mục cloud-backend): xem mục 3.2 của README chung, cần AUTH_MODE=local
 cd frontend
 npm install
 npm run dev:api    # http://localhost:5173, đăng nhập admin1 / DemoAdmin2026!
